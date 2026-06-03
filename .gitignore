@@ -1,0 +1,39 @@
+# --- Competition data (do not redistribute) ---
+data/train.csv
+data/test.csv
+
+# --- Large computed artifacts (reproducible from attempts/01) ---
+data/replogle_de.pkl
+
+# --- Generated prompts (reproducible from pipeline/runner.py) ---
+attempts/*/prompts/
+
+# --- Inference outputs ---
+attempts/*/outputs/
+*.zip
+submission*.csv
+
+# --- Python artifacts ---
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+.env
+
+# --- Editor / OS ---
+.DS_Store
+.idea/
+.vscode/
+*.swp
+
+# --- Local Claude settings (machine-specific) ---
+.claude/settings.local.json
+
+# --- Misc local ---
+*.log
+/tmp/
+
+# --- Private review-response doc (user-only reference material) ---
+discussion/Fig6_decomposition_framework_writeup_中文版.pdf
