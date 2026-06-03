@@ -31,3 +31,19 @@ for unseen (perturbed_gene, target_gene) pairs in mouse BMDM CRISPRi.
   there are reproducible from scripts in `attempts/`.
 - **Reproducibility**: each attempt's `README.md` lists inputs (paths) and
   outputs (paths), so the experiment can be re-run from scratch.
+
+## After meaningful work — required updates
+
+Whenever an attempt completes, a strategic decision is made, or the
+architecture changes, update **all of** the following before stopping:
+
+1. `progress.md` — append a dated block: what was done, headline result, next action.
+2. `plans/plan.md` — refresh the forward-looking pending list. Move completed items out, add new ones.
+3. `attempts/NN_short_name/result.md` — if this was a finished attempt, fill in numbers and verdict.
+4. **Commit and push.** Workflow spans two servers; the remote must be current.
+   ```bash
+   git add -A && git commit -m "<one-line summary>" && git push
+   ```
+
+These updates are part of "done" for any non-trivial change. Don't leave a
+session with stale `plan.md` / `progress.md` or uncommitted state.

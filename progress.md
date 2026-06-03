@@ -4,6 +4,31 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-03 · strategy · Four-layer prompt architecture decided
+
+Articulated the current pipeline's limitation: attempt 02's prompts give the LLM a Replogle scalar without mechanism context or cell-type translation guidance. The LLM is being asked to extrapolate K562/RPE1 → BMDM without being taught how.
+
+**Decision**: build each question's prompt as four conceptual layers.
+
+1. Replogle scalar (existing, attempt 02)
+2. KG mechanism context — STRING shortest path, Reactome pathway membership, GO overlap
+3. Cell-type translation guide — static rules for what transfers across cell types
+4. Case-based exemplars — deferred due to user's prior observation that example label distribution dominates LLM decisions (vote bias)
+
+**Implementation = attempt 03**: layers 2 + 3 only. Layer 4 deferred until 02 vs 03 comparison is done.
+
+**Closes the "should we be like VCWorld?" question**: architecturally yes (same offline-KG → retrieval → structured-prompt pattern, same DE/DIR output structure), but specifics differ. We need mouse BMDM context (VCWorld is human + drug), 4k input-token cap (VCWorld has none), and the double-AUROC parameterization is enforced via separate `P_DE` and `P_up_given_DE` integers.
+
+See `plans/plan.md` for the current pending list.
+
+---
+
+## 2026-06-03 · infra · Convention: keep plan / progress / git in sync
+
+Added explicit requirement to `CLAUDE.md`: after any meaningful work, update `progress.md` AND `plans/plan.md` AND commit + push. The two-server workflow needs the remote current.
+
+---
+
 ## 2026-06-03 · infra · Repo initialized for two-server workflow
 
 Made the project a git repo so the LLM-server side can pull and run inference.
