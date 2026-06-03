@@ -4,6 +4,23 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-03 · infra · Repo initialized for two-server workflow
+
+Made the project a git repo so the LLM-server side can pull and run inference.
+
+- `README.md` documents the full workflow (download data → build prior → build prompts → run LLM → assemble submission).
+- `scripts/run_inference.py` works with any OpenAI-compatible endpoint (vLLM, TGI). Reads from `LLM_BASE_URL` and `LLM_API_KEY` env vars. Concurrency, resume, and per-seed token tracking built in.
+- `scripts/make_submission.py` packages the zip per Track A spec (`submission.csv` + `prompt.txt`).
+- `scripts/download_data.py` pulls competition data via Kaggle API token.
+- `.gitignore` excludes competition data, large priors, generated prompts, inference outputs, and the internal Fig6 PDF — all reproducible from committed scripts.
+- Final aggregation in `pipeline/runner.py` updated to match the Track A spec wording (final `prediction_up` = mean of per-seed `prediction_up_seedXX`, same for down).
+- 29 files committed in initial commit `8edb0cf`.
+
+**Next on this server**: add KG retrieval signal for the 670 `none`-tier rows.
+**Next on the LLM server**: pull, run `scripts/run_inference.py`, push outputs back.
+
+---
+
 ## 2026-06-03 · attempt 02 · Baseline Track A prompt scaffold
 
 Built `pipeline/` infrastructure and generated 1,813 per-question prompts for Track A.
