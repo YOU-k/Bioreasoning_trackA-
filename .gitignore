@@ -5,6 +5,9 @@ data/test.csv
 # --- Large computed artifacts (reproducible from attempts/01) ---
 data/replogle_de.pkl
 
+# --- Raw KG downloads (~600 MB, reproducible via scripts/download_kg.py) ---
+data/kg_raw/
+
 # --- Generated prompts (reproducible from pipeline/runner.py) ---
 attempts/*/prompts/
 

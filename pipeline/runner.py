@@ -18,20 +18,30 @@ DATA = ROOT / 'data'
 
 
 def build_all_prompts(test_csv: str | Path = DATA/'test.csv',
-                      out_dir: str | Path = ROOT/'attempts/02_baseline_prompts/prompts') -> dict:
+                      out_dir: str | Path = ROOT/'attempts/02_baseline_prompts/prompts',
+                      use_kg: bool = False) -> dict:
     """Build per-row prompts for every row in test.csv.
+
+    Args:
+        use_kg: include Layer 2 (KG mechanism) and Layer 3 (cell-type guide)
+                in addition to Layer 1 (Replogle prior). attempt 02 = False,
+                attempt 03+ = True.
 
     Returns a dict summary {id: {pert, gene, tier, n_tokens, prompt_path}}.
     """
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     prior = ReplogPrior()
+    kg = None
+    if use_kg:
+        from .kg_retrieval import KGRetrieval
+        kg = KGRetrieval()
     summary = {}
     t0 = time.time()
     with open(test_csv) as f:
         rows = list(csv.DictReader(f))
     for i, row in enumerate(rows):
         rid, pert, gene = row['id'], row['pert'], row['gene']
-        prompt = build_prompt(pert, gene, prior)
+        prompt = build_prompt(pert, gene, prior, kg=kg, use_kg=use_kg)
         path = out_dir / f"{rid}.txt"
         with open(path, 'w') as fh: fh.write(prompt)
         summary[rid] = {

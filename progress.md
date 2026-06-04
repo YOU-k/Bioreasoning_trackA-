@@ -4,6 +4,31 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-04 · attempt 03 (offline build) · KG + cell-type guidance prompts
+
+Built Layer 2 (mouse KG mechanism) + Layer 3 (cross-cell-type transfer guide) and
+regenerated 1,813 prompts. LLM inference still pending.
+
+- **Data**: downloaded STRING mouse PPI v12.0, STRING aliases, Reactome
+  Ensembl2Reactome (all species, filtered to ENSMUSG), GO mgi.gaf (reserved for
+  attempt 04 fallback). Filtered KG index in `data/kg_index/` is ~4 MB, committed.
+- **Coverage**: 68% of test rows now have *some* KG signal (PPI path or category
+  tag). 33% have a STRING shortest path ≤3 hops between pert and gene.
+- **Code**: `pipeline/{kg_retrieval, celltype_guide}.py` + extended
+  `prompt_builder.py` with `use_kg=True` switch.
+- **Prompts**: median 1,540 tokens (was 1,018), still well under 4,096 budget.
+- **Tests**: 19 / 19 passing (added 8 tests in `test_kg.py`).
+- **Known gap**: 46% of genes have no Reactome mouse annotation (Atf4, Stat1,
+  Aars, Mki67, Lyz1, Eef1a1, Ifit1, …). GO BP fallback is the natural attempt 04
+  if attempt 03 doesn't move the score.
+
+**Next**: run GPT-OSS-120B × 3 seeds × 1,813 prompts on LLM server; compare
+attempt 03 LB score to attempt 02. Update this entry with the score.
+
+See `attempts/03_kg_celltype/result.md`.
+
+---
+
 ## 2026-06-03 · strategy · Four-layer prompt architecture decided
 
 Articulated the current pipeline's limitation: attempt 02's prompts give the LLM a Replogle scalar without mechanism context or cell-type translation guidance. The LLM is being asked to extrapolate K562/RPE1 → BMDM without being taught how.

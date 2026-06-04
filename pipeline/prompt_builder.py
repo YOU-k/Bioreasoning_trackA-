@@ -10,6 +10,8 @@ Designed to:
 from __future__ import annotations
 from typing import Optional
 from .replogle_prior import ReplogPrior
+from .kg_retrieval import KGRetrieval
+from .celltype_guide import rules_block, per_query_tag_block
 
 
 _SYSTEM = """You are a perturbation-response analyst for a mouse BMDM (bone marrow-derived macrophage) CRISPRi Perturb-seq study. The study knocks down one gene at a time and measures bulk-averaged scRNA-seq response.
@@ -109,10 +111,60 @@ def _format_replogle_block(prior: ReplogPrior, pert: str, gene: str) -> str:
     return "\n".join(lines) + "\n"
 
 
-def build_prompt(pert: str, gene: str, prior: Optional[ReplogPrior] = None) -> str:
-    """Build the full per-question prompt for Track A."""
+def _format_kg_block(kg: KGRetrieval, pert: str, gene: str,
+                     name_max_chars: int = 75) -> str:
+    """Layer 2: Mouse KG mechanism context (pathways + PPI shortest path).
+    ~150-200 tokens per query."""
+    def trim(name: str) -> str:
+        return name if len(name) <= name_max_chars else name[:name_max_chars - 1] + "..."
+
+    pert_paths = kg.get_pathways(pert, top_n=3)
+    gene_paths = kg.get_pathways(gene, top_n=3)
+    shared = kg.shared_pathways(pert, gene)[:3]
+    path = kg.shortest_path(pert, gene, max_depth=3)
+
+    lines = ["## Mouse KG mechanism context (Reactome + STRING ≥700)"]
+    if pert_paths:
+        lines.append(f"Pert `{pert}` Reactome pathways:")
+        for p in pert_paths:
+            lines.append(f"  - {trim(p)}")
+    else:
+        lines.append(f"Pert `{pert}`: no Reactome mouse annotation (use mechanistic knowledge)")
+    if gene_paths:
+        lines.append(f"Target `{gene}` Reactome pathways:")
+        for p in gene_paths:
+            lines.append(f"  - {trim(p)}")
+    else:
+        lines.append(f"Target `{gene}`: no Reactome mouse annotation (use mechanistic knowledge)")
+    if shared:
+        lines.append("Shared pathways:")
+        for p in shared:
+            lines.append(f"  - {trim(p)}")
+    if path is None:
+        lines.append("PPI shortest path (STRING ≥700, depth ≤3): NONE — no direct mechanistic link")
+    elif len(path) == 2:
+        lines.append(f"PPI shortest path: `{pert}` <-> `{gene}` (DIRECT, 1 edge)")
+    else:
+        chain = " -> ".join(f"`{n}`" for n in path)
+        lines.append(f"PPI shortest path ({len(path)-1} hops): {chain}")
+    return "\n".join(lines)
+
+
+def build_prompt(pert: str, gene: str,
+                 prior: Optional[ReplogPrior] = None,
+                 kg: Optional[KGRetrieval] = None,
+                 use_kg: bool = True) -> str:
+    """Build the full per-question prompt for Track A.
+
+    Layers:
+      1. Replogle scalar prior  (always)
+      2. KG mechanism context   (if use_kg)
+      3. Cell-type translation guide + per-query tags  (if use_kg)
+    """
     if prior is None:
         prior = ReplogPrior()
+    if use_kg and kg is None:
+        kg = KGRetrieval()
 
     body = [
         _SYSTEM,
@@ -124,6 +176,21 @@ def build_prompt(pert: str, gene: str, prior: Optional[ReplogPrior] = None) -> s
         f"  Target gene (readout): `{gene}`",
         "",
         _format_replogle_block(prior, pert, gene),
+    ]
+    if use_kg:
+        body += [
+            _format_kg_block(kg, pert, gene),
+            "",
+            rules_block(),
+            "",
+            per_query_tag_block(
+                pert, gene,
+                kg.get_pathways(pert, top_n=20),  # use more for accurate tag
+                kg.get_pathways(gene, top_n=20),
+            ),
+            "",
+        ]
+    body += [
         _DISCONFIRMER_BLOCK,
         "",
         _OUTPUT_ANCHORS,

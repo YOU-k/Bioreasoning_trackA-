@@ -11,8 +11,8 @@ Architecture: per-question prompt is **four conceptual layers**.
 | Layer | Adds | Status |
 |---|---|---|
 | 1 — Replogle scalar | logFC + top responders for the pert | ✅ shipped in attempt 02 |
-| 2 — KG mechanism context | pert↔gene path in STRING/Reactome, pathway membership, GO overlap | ❌ attempt 03 |
-| 3 — Cell-type translation guide | static rules for "what transfers K562/RPE1 → BMDM and what doesn't" | ❌ attempt 03 |
+| 2 — KG mechanism context | pert↔gene path in STRING/Reactome, pathway membership | ✅ attempt 03 (build done, LLM run pending) |
+| 3 — Cell-type translation guide | static rules for "what transfers K562/RPE1 → BMDM and what doesn't" | ✅ attempt 03 (build done, LLM run pending) |
 | 4 — Case-based exemplars (optional) | retrieved similar (pert', gene', label) triplets from train | ⏳ deferred |
 
 ## Pending — in order
@@ -24,16 +24,15 @@ Run `scripts/run_inference.py` with deployed GPT-OSS-120B against the 1,813 base
 - Deliverable: `attempts/02_baseline_prompts/outputs/{seed}/{id}.txt` + the real Kaggle Public LB score in `result.md`
 - Decision point: the LB score tells us how much room layers 2-3 need to fill
 
-### P2 · Attempt 03 — KG + cell-type guidance
-Add Layer 2 + Layer 3 to the prompt.
+### P2 · Attempt 03 — KG + cell-type guidance  (offline build complete)
+Layer 2 + Layer 3 built (`pipeline/{kg_retrieval, celltype_guide}.py`); 1,813
+prompts written under `attempts/03_kg_celltype/prompts/`, median 1,540 tokens.
+Coverage: 68% of test rows have a KG signal; 19/19 tests pass. **LLM inference
+on the deployed GPT-OSS-120B is the remaining work**. Compare LB score to attempt 02
+and decide whether to invest in Layer 4 (case exemplars), attempt 04 GO BP
+fallback, or P3 auxiliary DE classifier.
 
-- Implement `pipeline/kg_retrieval.py` (STRING PPI mouse + Reactome mouse GMT → per (pert, gene) shortest path, pathway overlap, GO term overlap)
-- Implement `pipeline/celltype_guide.py` (static rule block: which gene categories transfer well from K562/RPE1 to BMDM, which don't)
-- Extend `pipeline/prompt_builder.py` to inject the two blocks (≤400 tokens each, keep total under 4096)
-- Regenerate 1813 prompts under `attempts/03_kg_celltype/prompts/`
-- Re-run LLM × 3 seeds
-- Compare against attempt 02
-- Expected gain: **+0.03–0.05 combined AUROC**
+Expected gain: **+0.03–0.05 combined AUROC** vs attempt 02.
 
 ### P3 · Attempt 04 — auxiliary DE classifier (decide after P2)
 Triggered only if P2 doesn't lift DE-AUROC to ~0.60+.
