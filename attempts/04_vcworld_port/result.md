@@ -3,6 +3,18 @@
 **Date**: 2026-06-08
 **Status**: Architecture validated. Ready for GPT full run.
 
+> **Correction added 2026-06-08 (later same day)**: this file claims VCWorld's
+> "randomized labels" pattern as the canonical paper trick. It is **not**. The
+> randomization comes from a non-canonical code path
+> (`/data3/yy/VCWorld/src/cli_pipeline/stages/prompt.py:61`,
+> `answer = random.choice(choices)`), not the published design. The paper
+> (Wei et al., ICLR 2026, §3.4.2 + Appendix D) retrieves analogue + contrast
+> subsets with **real labels** — vote bias is defeated by the structural
+> pos/neg mix, not by destroying the label signal. Attempt 05 ports the
+> correct design. The numbers below remain valid (DeepSeek really did score
+> 0.640 with the random-label prompts on these 60 rows) — only the **causal
+> attribution** of why it worked is now uncertain. See `attempts/05_paper_faithful/`.
+
 ## Headline
 
 On 60 random train rows (seed=123, the same sample used to grade attempt 03),

@@ -4,27 +4,26 @@ Forward-looking only. Historical decisions live in `progress.md`. Each entry is 
 
 ## Current strategic frame
 
-Attempt 04 (VCWorld-style two-prompt architecture) hit **Combined = 0.640** on the 60-row train probe (DeepSeek-Reasoner), clearing the attempt-01 baseline (0.602) and entering the top-4 Kaggle LB band (0.628 – 0.650). The architecture is validated. Remaining work is execution + iteration.
+Attempts 04 (random labels) and 05 (paper-faithful, real labels) score **0.640 vs 0.637 Combined** on the 60-row train probe — a tie within sampling noise. Both clear the attempt-01 baseline (0.602) and sit in the top-4 Kaggle LB band (0.628 – 0.650). The two-prompt architecture is validated; the label-rendering choice does not measurably change the metric here.
+
+**Going forward**: use **attempt 05 prompts** (paper-faithful, real labels) — conceptually cleaner, single source of truth for "our method".
 
 Architecture: per-question is **two independent calls** to the LLM.
 
 | Layer | Purpose | Status |
 |---|---|---|
-| BMDM context paragraph | Lineage state, expressed vs silent programs | ✅ attempt 04 |
-| Per-gene NCBI summary | Function context per pert + target | ✅ attempt 04 (87% coverage via human ortholog) |
-| KG-similarity retrieval (K=10) | Both-anchor train exemplars, labels randomized | ✅ attempt 04 |
-| DE prompt | Replogle scalar included, 5-step reasoning, integer P_DE out | ✅ attempt 04 |
-| DIR prompt | Replogle scalar OMITTED, activator/repressor logic, integer P_up_given_DE out | ✅ attempt 04 |
+| BMDM context paragraph | Lineage state, expressed vs silent programs | ✅ attempts 04 + 05 |
+| Per-gene NCBI summary | Function context per pert + target | ✅ attempts 04 + 05 (87% coverage via human ortholog) |
+| Analog + contrast retrieval (k_a=5 + k_c=5) | Paper §3.4.2 — label-conditioned pools, real labels in prompt | ✅ attempt 05 |
+| DE prompt | Replogle scalar included, 5-step reasoning, integer P_DE out | ✅ attempts 04 + 05 |
+| DIR prompt | Replogle scalar OMITTED, activator/repressor logic, integer P_up_given_DE out | ✅ attempts 04 + 05 |
 
 ## Pending — in order
 
-### P1 · Full GPT run on attempt 04 prompts (user-owned)
-Run the two-prompt pipeline against all 1,813 test rows × 3 seeds × {DE, DIR} =
-10,878 GPT calls. Aggregate per-seed P_DE / P_up_given_DE through the existing
-`pipeline/runner.assemble_submission()` to produce the Kaggle submission zip.
+### P1 · Full GPT run on attempt 05 prompts (user-owned)
+Run the paper-faithful two-prompt pipeline against all 1,813 test rows × 3 seeds × {DE, DIR} = 10,878 GPT calls. Aggregate per-seed P_DE / P_up_given_DE through `pipeline/runner.assemble_submission()` to produce the Kaggle submission zip.
 
-- Deliverable: `attempts/04_vcworld_port/outputs/{de,dir}/{seed}/{id}.txt`, then
-  `attempts/04_vcworld_port/submission.zip`, then the real Kaggle Public LB score.
+- Deliverable: `attempts/05_paper_faithful/outputs/{de,dir}/{seed}/{id}.txt`, then `attempts/05_paper_faithful/submission.zip`, then the real Kaggle Public LB score.
 - Decision point: LB score tells us whether further iteration is worth it.
 
 ### P2 · Submission format dry-run (before P1)
@@ -35,27 +34,25 @@ Run the two-prompt pipeline against all 1,813 test rows × 3 seeds × {DE, DIR} 
 
 ### P3 · Retrieval-quality ablation (conditional on P1)
 If LB lands ≤ 0.60, retrieval quality may be the bottleneck. Try:
-- Increase budget from K=10 to K=20 (more analogues to reason from)
-- Add weight to STRING edges (currently flat-scored): pathway shared > 1 weighted more
-- Replace VCWorld randomized labels with real labels (test whether vote bias actually appears)
+- Increase budget from k_a=5+k_c=5 to k_a=10+k_c=10 (more analogues to reason from)
+- Weight STRING edges by confidence band (currently linearly summed); pathway shared > 1 weighted more
+- Tune the pos/neg balance — empirically for our data, DIR contrast pool is often empty (e.g., aaRS→ISR queries have 0 down-going analogues). Consider falling back to broader KG neighborhoods when contrast pool < 2.
 
-### P4 · DE-AUROC recovery (-0.053 vs attempt 03)
-Attempt 04 traded a small DE-AUROC drop (0.654 → 0.601) for the big DIR win.
-Worth recovering this:
+### P4 · DE-AUROC recovery (-0.05 vs attempt 03)
+Attempts 04 + 05 both trade DE-AUROC (~0.60) for the big DIR win (~0.67). Worth recovering this:
 - The 5-step reasoning may be making the model too conservative on DE
 - Try giving the DE prompt a simpler 2-3-step structure to keep P_DE distribution wider
 
 ### P5 · Augment exemplars beyond Reactome+STRING
-Genes with no Reactome mouse annotation (46% of test, especially Riken IDs,
-lncRNAs, ribosomal/IFN genes) get weak retrieval. Add fallbacks:
-- GO BP overlap (we already downloaded `mgi.gaf` in attempt 03)
-- Co-expression neighbours (would need an external BMDM reference, e.g.,
-  ImmGen — postpone unless retrieval ablation shows it's the limit)
+Genes with no Reactome mouse annotation (46% of test, especially Riken IDs, lncRNAs, ribosomal/IFN genes) get weak retrieval. Add fallbacks:
+- GO BP overlap (`mgi.gaf` already downloaded in attempt 03)
+- Co-expression neighbours (would need an external BMDM reference, e.g., ImmGen — postpone unless retrieval ablation shows it's the limit)
 
 ## Deferred / closed
 
-- **Attempt 03 (one prompt, KG + cell-type guide)** — superseded by attempt 04. Kept for reference; do not run again.
-- **Layer 4 case-based exemplars (deferred vote-bias concern)** — closed. VCWorld's randomized-label trick resolves vote bias; we now use it.
+- **Attempt 03 (one prompt, KG + cell-type guide)** — superseded. Kept for reference; do not run again.
+- **Random-label rendering (attempt 04)** — closed. Empirically equal to real-label rendering on 60-row probe (0.640 vs 0.637). Paper-faithful real labels are cleaner; use attempt 05 forward.
+- **Layer 4 case-based exemplars (deferred vote-bias concern)** — closed. Paper §3.4.2 analog+contrast retrieval defeats vote bias structurally by the forced pos/neg mix, not by destroying the label signal.
 - **Ortholog mapping improvements** — pilot showed saturation. Closed.
 - **Public BMDM CRISPRi lookup** — Genentech-internal. Closed.
 - **PubMed abstract retrieval** — too noisy; subsumed by NCBI gene summaries + BMDM context.

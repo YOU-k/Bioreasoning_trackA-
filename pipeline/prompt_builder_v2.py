@@ -1,16 +1,20 @@
-"""Per-query prompt builders for Attempt 04 (VCWorld-style).
+"""Per-query prompt builders (attempts 04 + 05, VCWorld-style).
 
 Two independent prompts per (pert, gene) query:
   * build_de_prompt  -> asks ONLY "is target DE?"  emits P_DE
   * build_dir_prompt -> asks ONLY "if DE, up or down?"  emits P_up_given_DE
 
-Both prompts share: rich BMDM context, gene/pert description, and
-retrieved exemplar pairs with RANDOMIZED labels (VCWorld pattern — proves
-the question is well-formed without biasing the answer by vote count).
+Retrieval pattern follows VCWorld paper §3.4.2 (Wei et al., ICLR 2026): for
+each task we retrieve two label-conditioned pools from train, ranked by KG
+similarity, and present them with REAL labels. The structural mix of positive
+and negative examples defeats vote bias without destroying the empirical
+signal (attempt 04 used random labels which were not faithful to the paper).
 
-DE prompt additionally includes the Replogle scalar (it gave real DE signal
-in our evaluation). DIR prompt deliberately omits Replogle's direction — the
-LLM was systematically overriding it with bad mechanism inference.
+Both prompts share: rich BMDM context, gene/pert description, analogue +
+contrast exemplars with real labels. DE prompt includes the Replogle scalar
+(it gave real DE signal in our evaluation). DIR prompt deliberately omits
+Replogle's direction — attempt 03 showed the LLM systematically overrides it
+with bad mechanism inference, hurting DIR-AUROC below random.
 """
 from __future__ import annotations
 from typing import Optional
@@ -138,7 +142,7 @@ def build_de_prompt(pert: str, gene: str, *,
                     retriever: Optional[ExampleRetriever] = None,
                     desc: Optional[GeneDesc] = None,
                     kg: Optional[KGRetrieval] = None,
-                    budget: int = 10,
+                    k_a: int = 5, k_c: int = 5,
                     exclude_query: bool = False,
                     seed: int = 42) -> str:
     prior = prior or ReplogPrior()
@@ -146,10 +150,11 @@ def build_de_prompt(pert: str, gene: str, *,
     retriever = retriever or ExampleRetriever(kg=kg)
     desc = desc or gene_desc_default()
 
-    examples = retriever.retrieve(pert, gene, budget=budget,
-                                  exclude_query=exclude_query, seed=seed)
-    ex_block = ExampleRetriever.format_block_random_labels(
-        examples, choices=CHOICES_DE, seed=seed)
+    analog, contrast = retriever.retrieve_analog_contrast(
+        pert, gene, task='de', k_a=k_a, k_c=k_c,
+        exclude_query=exclude_query, seed=seed)
+    ex_block = ExampleRetriever.format_block_analog_contrast(
+        analog, contrast, task='de', seed=seed)
 
     pert_paths = kg.get_pathways(pert, top_n=3)
     gene_paths = kg.get_pathways(gene, top_n=3)
@@ -166,10 +171,14 @@ def build_de_prompt(pert: str, gene: str, *,
         f'  Target gene (readout): `{gene}`',
         f'    Description: {desc.get(gene, pathway_fallback=gene_paths)}',
         '',
-        '## Structurally similar (pert, target) pairs from train',
-        '(Labels are RANDOMIZED. These pairs exist in train data — use them '
-        'to anchor your "is this question plausible / mechanistically grounded" '
-        'judgment. Do NOT count Result votes.)',
+        '## Evidence cases from train (analogue + contrast)',
+        f'These are {len(analog)} **analogue** cases (similar pert/gene pairs '
+        f'where DE was observed) and {len(contrast)} **contrast** cases '
+        f'(similar pairs where DE was NOT observed). Pairs were retrieved by '
+        'STRING + Reactome similarity to the query (pert, target). Use them '
+        'to anchor mechanism reasoning; the mix of Yes/No outcomes is by '
+        'construction, so do not vote — reason about which side the present '
+        'case is closer to and why.',
         ex_block,
         '',
         '## ' + _format_replogle_for_de(prior, pert, gene),
@@ -186,7 +195,7 @@ def build_dir_prompt(pert: str, gene: str, *,
                      retriever: Optional[ExampleRetriever] = None,
                      desc: Optional[GeneDesc] = None,
                      kg: Optional[KGRetrieval] = None,
-                     budget: int = 10,
+                     k_a: int = 5, k_c: int = 5,
                      exclude_query: bool = False,
                      seed: int = 42) -> str:
     prior = prior or ReplogPrior()
@@ -194,10 +203,11 @@ def build_dir_prompt(pert: str, gene: str, *,
     retriever = retriever or ExampleRetriever(kg=kg)
     desc = desc or gene_desc_default()
 
-    examples = retriever.retrieve(pert, gene, budget=budget,
-                                  exclude_query=exclude_query, seed=seed)
-    ex_block = ExampleRetriever.format_block_random_labels(
-        examples, choices=CHOICES_DIR, seed=seed)
+    analog, contrast = retriever.retrieve_analog_contrast(
+        pert, gene, task='dir', k_a=k_a, k_c=k_c,
+        exclude_query=exclude_query, seed=seed)
+    ex_block = ExampleRetriever.format_block_analog_contrast(
+        analog, contrast, task='dir', seed=seed)
 
     pert_paths = kg.get_pathways(pert, top_n=3)
     gene_paths = kg.get_pathways(gene, top_n=3)
@@ -214,8 +224,13 @@ def build_dir_prompt(pert: str, gene: str, *,
         f'  Target gene (readout): `{gene}`',
         f'    Description: {desc.get(gene, pathway_fallback=gene_paths)}',
         '',
-        '## Structurally similar (pert, target) pairs from train',
-        '(Labels are RANDOMIZED — use to confirm question plausibility, not to vote.)',
+        '## Evidence cases from train (analogue + contrast)',
+        f'These are {len(analog)} **analogue** cases (similar pert/gene pairs '
+        f'where the target went UP) and {len(contrast)} **contrast** cases '
+        f'(similar pairs where it went DOWN). Pairs where DE did not happen '
+        f'are excluded entirely — DIR is conditional on DE. The mix of '
+        'Increase/Decrease is by construction; reason about which direction '
+        'the present case is closer to and why.',
         ex_block,
         '',
         '## ' + _format_replogle_for_de(prior, pert, gene),

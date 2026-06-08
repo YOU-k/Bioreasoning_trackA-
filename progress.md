@@ -4,6 +4,46 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-08 (later) · attempt 05 · Paper-faithful VCWorld port (real labels)
+
+Re-read the actual paper (Wei et al., ICLR 2026 — `discussion/vcworld_paper.txt`)
+and discovered attempt 04 was built on a misreading of VCWorld. The randomized-
+label rendering we used came from `src/cli_pipeline/stages/prompt.py:61`
+(`random.choice(choices)`), but **paper §3.4.2 + Appendix D** retrieve **analogue
++ contrast subsets with real labels**, ranked by similarity within each pool.
+Structural pos/neg mix defeats vote bias without destroying empirical signal.
+
+**Implementation**
+- `pipeline/retrieve_examples.py`: added `retrieve_analog_contrast(pert, gene, task='de'|'dir', k_a, k_c)` and `format_block_analog_contrast(...)`. Removed `format_block_random_labels`.
+- `pipeline/prompt_builder_v2.py`: `build_de_prompt` and `build_dir_prompt` now use analog+contrast retrieval with real labels (k_a=5 + k_c=5, total budget unchanged).
+- `pipeline/tests/test_retrieve_analog_contrast.py`: 5 new tests; 29/29 pipeline tests green.
+- `scripts/eval_metric_v3.py`: eval runner pointing to `attempts/05_paper_faithful/outputs/eval60/`.
+
+**Result on the same 60 train rows (seed=123)** — **TIE with attempt 04**
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| Attempt 03 (one prompt) | 0.654 | 0.451 | 0.552 |
+| Attempt 04 (random labels) | 0.601 | 0.679 | **0.640** |
+| **Attempt 05 (real labels, paper)** | **0.610** | 0.665 | **0.637** |
+
+DE +0.009, DIR -0.014, Combined -0.003. Within 60-row sampling noise.
+
+**Implication**: the random-label trick was **not** the active ingredient
+in attempt 04's DIR-AUROC jump from 0.451 → 0.679. The real ingredients
+were the architecture changes (two prompts, DIR drops Replogle, BMDM context,
+per-gene descriptions). Random vs real label rendering moves the metric by
+0.003 here.
+
+**Recommendation**: use attempt 05 prompts for the full GPT run — same score
+within noise, but conceptually cleaner and matches the published method.
+
+**Corrections**: added `## Correction` notices to `attempts/04_vcworld_port/{README,result}.md` flagging the wrong VCWorld attribution. The attempt-04 numbers remain valid; only the causal story is corrected.
+
+See `attempts/05_paper_faithful/result.md`.
+
+---
+
 ## 2026-06-08 · attempt 04 (validated on DeepSeek 60-row probe) · VCWorld-style port
 
 Pivoted to two-prompt VCWorld architecture after attempt 03 evaluation

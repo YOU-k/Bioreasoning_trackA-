@@ -1,5 +1,13 @@
 # Attempt 04 — VCWorld-style port
 
+> **Correction (2026-06-08, later same day)**: this README claims VCWorld's
+> "randomized labels" idea as the paper-canonical pattern (item 4 below). That
+> was a misread. The paper (Wei et al., ICLR 2026, §3.4.2 + Appendix D)
+> retrieves analogue + contrast subsets with **real labels**, not randomized.
+> The randomization comes from a non-canonical code path
+> (`/data3/yy/VCWorld/src/cli_pipeline/stages/prompt.py:61`). Attempt 05
+> implements the correct design. See `attempts/05_paper_faithful/README.md`.
+
 ## Hypothesis
 
 Attempt 03 (KG mechanism + cell-type guidance, **one** prompt outputs both `P_DE`

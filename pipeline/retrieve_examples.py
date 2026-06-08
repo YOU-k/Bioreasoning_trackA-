@@ -8,8 +8,15 @@ Test set is double-disjoint vs train (no pert overlap, no gene overlap), so
 only "both-similar" pairs are possible — single-anchor patterns (same pert,
 similar gene) from VCWorld's original code are empty for this competition.
 
-The exemplar pairs are returned WITHOUT labels — caller decides how to fill
-the `Result` field (random per VCWorld, or omitted).
+Two retrieval modes are provided:
+
+* `retrieve()` — flat top-K by KG similarity (no label conditioning).
+* `retrieve_analog_contrast()` — paper §3.4.2 design. Splits train pairs
+  into two label-conditioned pools (positive outcome / negative outcome),
+  ranks each by KG similarity, returns top-k_a analogue + top-k_c contrast.
+  Rendered with REAL labels by `format_block_analog_contrast` — vote bias
+  is defeated structurally by the forced mix of positive and negative
+  examples, not by destroying the label signal.
 
 For validation on TRAIN rows (where leakage is possible), pass
 `exclude_query=True` to drop pairs that share the query's pert or gene.
@@ -38,29 +45,27 @@ class ExampleRetriever:
         # (pert, gene) -> label lookup
         self._pair_label = {(p, g): lbl for p, g, lbl in self._train}
 
-    def _similar_perts(self, pert: str, top_n: int = 20) -> list[str]:
+    def _similar_perts_scored(self, pert: str, top_n: int = 20) -> list[tuple[str, float]]:
         """Train perts ranked by KG similarity to query pert.
         Similarity = STRING direct edge (weighted) + Reactome shared count.
         Falls back to Reactome co-membership if pert not in STRING."""
         scores: dict[str, float] = defaultdict(float)
-        # STRING direct neighbors
         for nb, score in self.kg.adj.get(pert, {}).items():
             scores[nb] += score / 1000.0  # 0-1 range from STRING confidence
-        # Reactome shared pathways
         pert_paths = set(self.kg.pathways.get(pert, []))
         if pert_paths:
             for cand in self._train_perts:
                 shared = pert_paths & set(self.kg.pathways.get(cand, []))
                 if shared:
                     scores[cand] += len(shared) * 0.5
-        # Restrict to train perts
+        train_perts = set(self._train_perts)
         ranked = sorted(
-            ((p, s) for p, s in scores.items() if p in set(self._train_perts) and p != pert),
+            ((p, s) for p, s in scores.items() if p in train_perts and p != pert),
             key=lambda x: -x[1],
         )
-        return [p for p, _ in ranked[:top_n]]
+        return ranked[:top_n]
 
-    def _similar_genes(self, gene: str, top_n: int = 20) -> list[str]:
+    def _similar_genes_scored(self, gene: str, top_n: int = 20) -> list[tuple[str, float]]:
         """Train genes ranked by KG similarity to query gene (same logic)."""
         scores: dict[str, float] = defaultdict(float)
         for nb, score in self.kg.adj.get(gene, {}).items():
@@ -71,11 +76,18 @@ class ExampleRetriever:
                 shared = gene_paths & set(self.kg.pathways.get(cand, []))
                 if shared:
                     scores[cand] += len(shared) * 0.5
+        train_genes = set(self._train_genes)
         ranked = sorted(
-            ((g, s) for g, s in scores.items() if g in set(self._train_genes) and g != gene),
+            ((g, s) for g, s in scores.items() if g in train_genes and g != gene),
             key=lambda x: -x[1],
         )
-        return [g for g, _ in ranked[:top_n]]
+        return ranked[:top_n]
+
+    def _similar_perts(self, pert: str, top_n: int = 20) -> list[str]:
+        return [p for p, _ in self._similar_perts_scored(pert, top_n)]
+
+    def _similar_genes(self, gene: str, top_n: int = 20) -> list[str]:
+        return [g for g, _ in self._similar_genes_scored(gene, top_n)]
 
     def retrieve(self, pert: str, gene: str, budget: int = 10,
                  exclude_query: bool = False, seed: int = 42) -> list[tuple[str, str, str]]:
@@ -118,19 +130,61 @@ class ExampleRetriever:
 
         return both
 
-    @staticmethod
-    def format_block_random_labels(examples: list[tuple[str, str, str]],
-                                   choices: list[str], seed: int = 42) -> str:
-        """VCWorld-style: render exemplars with RANDOMIZED labels (50/50)
-        so the model can't vote-count, only use the structural existence."""
+    def retrieve_analog_contrast(self, pert: str, gene: str, *,
+                                 task: str,
+                                 k_a: int = 5, k_c: int = 5,
+                                 exclude_query: bool = False,
+                                 seed: int = 42,
+                                 ) -> tuple[list[tuple[str, str, str]],
+                                            list[tuple[str, str, str]]]:
+        """Paper §3.4.2 retrieval.
+
+        Splits train pairs into label-conditioned pools and ranks each by KG
+        similarity to the query (pert, gene). Pair similarity is defined as
+        sim_pert(pert, p') + sim_gene(gene, g'). Returns (analog, contrast)
+        where each list contains (pert', gene', real_label) triplets.
+
+        task='de'  -> analog pool = {up, down}; contrast pool = {none}
+        task='dir' -> analog pool = {up};       contrast pool = {down}
+                     (label='none' pairs excluded entirely)
+        """
+        if task not in ('de', 'dir'):
+            raise ValueError(f"task must be 'de' or 'dir', got {task!r}")
         rng = random.Random(seed)
-        if not examples:
-            return "No structurally similar (perturbed, target) pairs available in train."
-        lines = []
-        for i, (p, g, _real_label) in enumerate(examples, 1):
-            choice = rng.choice(choices)
-            lines.append(f"Example {i}: pert=`{p}`, target=`{g}`. Result: {choice}")
-        return '\n'.join(lines)
+        pert_scores = dict(self._similar_perts_scored(pert, top_n=50))
+        gene_scores = dict(self._similar_genes_scored(gene, top_n=50))
+        if not pert_scores or not gene_scores:
+            return [], []
+        candidates = []
+        for p2 in pert_scores:
+            for g2 in gene_scores:
+                lbl = self._pair_label.get((p2, g2))
+                if lbl is None:
+                    continue
+                if exclude_query and (p2 == pert or g2 == gene):
+                    continue
+                pair_sim = pert_scores[p2] + gene_scores[g2]
+                candidates.append((pair_sim, p2, g2, lbl))
+
+        if task == 'de':
+            pos_labels = {'up', 'down'}
+            neg_labels = {'none'}
+        else:
+            pos_labels = {'up'}
+            neg_labels = {'down'}
+
+        pos_pool = [(s, p, g, l) for s, p, g, l in candidates if l in pos_labels]
+        neg_pool = [(s, p, g, l) for s, p, g, l in candidates if l in neg_labels]
+        # Sort descending by similarity; rng.shuffle as tie-breaker so identical
+        # scores don't always pick the same pair, but real label is preserved.
+        rng.shuffle(pos_pool)
+        rng.shuffle(neg_pool)
+        pos_pool.sort(key=lambda t: -t[0])
+        neg_pool.sort(key=lambda t: -t[0])
+
+        analog = [(p, g, l) for _, p, g, l in pos_pool[:k_a]]
+        contrast = [(p, g, l) for _, p, g, l in neg_pool[:k_c]]
+        return analog, contrast
 
     @staticmethod
     def format_block_real_labels(examples: list[tuple[str, str, str]]) -> str:
@@ -140,4 +194,30 @@ class ExampleRetriever:
         lines = []
         for i, (p, g, lbl) in enumerate(examples, 1):
             lines.append(f"Example {i}: pert=`{p}`, target=`{g}`. True label: {lbl}")
+        return '\n'.join(lines)
+
+    @staticmethod
+    def format_block_analog_contrast(analog: list[tuple[str, str, str]],
+                                     contrast: list[tuple[str, str, str]],
+                                     *, task: str, seed: int = 42) -> str:
+        """Paper §3.4.2 + Appendix D rendering.
+
+        Combine analog (positive outcome) and contrast (negative outcome)
+        pools into one shuffled list, showing the REAL label per example.
+        Per-task label rendering:
+          task='de'  -> "DE: Yes" (up/down) or "DE: No" (none)
+          task='dir' -> "Increase" (up) or "Decrease" (down)
+        """
+        if not analog and not contrast:
+            return "No structurally similar (perturbed, target) pairs available in train."
+        combined = list(analog) + list(contrast)
+        random.Random(seed).shuffle(combined)
+        def render_label(lbl: str) -> str:
+            if task == 'de':
+                return 'Yes (differentially expressed)' if lbl in ('up', 'down') \
+                    else 'No (not differentially expressed)'
+            return 'Increase' if lbl == 'up' else 'Decrease'
+        lines = []
+        for i, (p, g, lbl) in enumerate(combined, 1):
+            lines.append(f"Example {i}: pert=`{p}`, target=`{g}`. Result: {render_label(lbl)}")
         return '\n'.join(lines)
