@@ -4,52 +4,58 @@ Forward-looking only. Historical decisions live in `progress.md`. Each entry is 
 
 ## Current strategic frame
 
-Public leaderboard ceiling looks like ~0.65 (top-4 cluster 0.628–0.650). Replogle-only baseline applied naively (0.5 default for no-prior rows) likely scores ~0.55. To push above 0.60, the LLM needs more than a scalar to work with.
+Attempt 04 (VCWorld-style two-prompt architecture) hit **Combined = 0.640** on the 60-row train probe (DeepSeek-Reasoner), clearing the attempt-01 baseline (0.602) and entering the top-4 Kaggle LB band (0.628 – 0.650). The architecture is validated. Remaining work is execution + iteration.
 
-Architecture: per-question prompt is **four conceptual layers**.
+Architecture: per-question is **two independent calls** to the LLM.
 
-| Layer | Adds | Status |
+| Layer | Purpose | Status |
 |---|---|---|
-| 1 — Replogle scalar | logFC + top responders for the pert | ✅ shipped in attempt 02 |
-| 2 — KG mechanism context | pert↔gene path in STRING/Reactome, pathway membership | ✅ attempt 03 (build done, LLM run pending) |
-| 3 — Cell-type translation guide | static rules for "what transfers K562/RPE1 → BMDM and what doesn't" | ✅ attempt 03 (build done, LLM run pending) |
-| 4 — Case-based exemplars (optional) | retrieved similar (pert', gene', label) triplets from train | ⏳ deferred |
+| BMDM context paragraph | Lineage state, expressed vs silent programs | ✅ attempt 04 |
+| Per-gene NCBI summary | Function context per pert + target | ✅ attempt 04 (87% coverage via human ortholog) |
+| KG-similarity retrieval (K=10) | Both-anchor train exemplars, labels randomized | ✅ attempt 04 |
+| DE prompt | Replogle scalar included, 5-step reasoning, integer P_DE out | ✅ attempt 04 |
+| DIR prompt | Replogle scalar OMITTED, activator/repressor logic, integer P_up_given_DE out | ✅ attempt 04 |
 
 ## Pending — in order
 
-### P1 · Run baseline (attempt 02) on the LLM server
-Run `scripts/run_inference.py` with deployed GPT-OSS-120B against the 1,813 baseline prompts × 3 seeds.
+### P1 · Full GPT run on attempt 04 prompts (user-owned)
+Run the two-prompt pipeline against all 1,813 test rows × 3 seeds × {DE, DIR} =
+10,878 GPT calls. Aggregate per-seed P_DE / P_up_given_DE through the existing
+`pipeline/runner.assemble_submission()` to produce the Kaggle submission zip.
 
-- Cost: ~3 hours of inference time
-- Deliverable: `attempts/02_baseline_prompts/outputs/{seed}/{id}.txt` + the real Kaggle Public LB score in `result.md`
-- Decision point: the LB score tells us how much room layers 2-3 need to fill
+- Deliverable: `attempts/04_vcworld_port/outputs/{de,dir}/{seed}/{id}.txt`, then
+  `attempts/04_vcworld_port/submission.zip`, then the real Kaggle Public LB score.
+- Decision point: LB score tells us whether further iteration is worth it.
 
-### P2 · Attempt 03 — KG + cell-type guidance  (offline build complete)
-Layer 2 + Layer 3 built (`pipeline/{kg_retrieval, celltype_guide}.py`); 1,813
-prompts written under `attempts/03_kg_celltype/prompts/`, median 1,540 tokens.
-Coverage: 68% of test rows have a KG signal; 19/19 tests pass. **LLM inference
-on the deployed GPT-OSS-120B is the remaining work**. Compare LB score to attempt 02
-and decide whether to invest in Layer 4 (case exemplars), attempt 04 GO BP
-fallback, or P3 auxiliary DE classifier.
-
-Expected gain: **+0.03–0.05 combined AUROC** vs attempt 02.
-
-### P3 · Attempt 04 — auxiliary DE classifier (decide after P2)
-Triggered only if P2 doesn't lift DE-AUROC to ~0.60+.
-
-- Train a small LightGBM (Replogle logFC vec + pathway distance + gene class + baseline expression + train pert-class × gene-class DE rate → P_DE)
-- Inject prediction into prompt as an external scalar
-- Expected gain: **+0.02–0.03 combined AUROC**
-
-### P4 · Submission format verification (before first real upload)
-- Pull real `sample_submission_track_a.csv` from logged-in Kaggle Data tab
+### P2 · Submission format dry-run (before P1)
+- Pull `sample_submission_track_a.csv` from Kaggle Data tab
 - Diff column names / types against `pipeline/runner.assemble_submission()`
-- Test the zip on a one-row submission through Kaggle's validator
-- Cost of skipping: 0-score submission, wastes a daily slot
+- Test the zip on a one-row submission to confirm Kaggle accepts the format
+- Cost of skipping: 0-score submission, burns a daily quota slot
+
+### P3 · Retrieval-quality ablation (conditional on P1)
+If LB lands ≤ 0.60, retrieval quality may be the bottleneck. Try:
+- Increase budget from K=10 to K=20 (more analogues to reason from)
+- Add weight to STRING edges (currently flat-scored): pathway shared > 1 weighted more
+- Replace VCWorld randomized labels with real labels (test whether vote bias actually appears)
+
+### P4 · DE-AUROC recovery (-0.053 vs attempt 03)
+Attempt 04 traded a small DE-AUROC drop (0.654 → 0.601) for the big DIR win.
+Worth recovering this:
+- The 5-step reasoning may be making the model too conservative on DE
+- Try giving the DE prompt a simpler 2-3-step structure to keep P_DE distribution wider
+
+### P5 · Augment exemplars beyond Reactome+STRING
+Genes with no Reactome mouse annotation (46% of test, especially Riken IDs,
+lncRNAs, ribosomal/IFN genes) get weak retrieval. Add fallbacks:
+- GO BP overlap (we already downloaded `mgi.gaf` in attempt 03)
+- Co-expression neighbours (would need an external BMDM reference, e.g.,
+  ImmGen — postpone unless retrieval ablation shows it's the limit)
 
 ## Deferred / closed
 
-- **Layer 4 case-based exemplars** — implementation cost is high; user's prior work shows "vote bias" risk where the example label distribution dominates over example facts. Revisit only if Layers 2-3 land cleanly.
-- **Ortholog mapping improvements** — pilot showed saturation (no AUROC gain). Closed.
-- **Public BMDM CRISPRi lookup** — competition source is Genentech-internal. Closed.
-- **PubMed abstract retrieval** — too noisy, high token cost. Subsumed by Layer 3 static rules.
+- **Attempt 03 (one prompt, KG + cell-type guide)** — superseded by attempt 04. Kept for reference; do not run again.
+- **Layer 4 case-based exemplars (deferred vote-bias concern)** — closed. VCWorld's randomized-label trick resolves vote bias; we now use it.
+- **Ortholog mapping improvements** — pilot showed saturation. Closed.
+- **Public BMDM CRISPRi lookup** — Genentech-internal. Closed.
+- **PubMed abstract retrieval** — too noisy; subsumed by NCBI gene summaries + BMDM context.

@@ -4,6 +4,46 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-08 · attempt 04 (validated on DeepSeek 60-row probe) · VCWorld-style port
+
+Pivoted to two-prompt VCWorld architecture after attempt 03 evaluation
+revealed DIR-AUROC = 0.451 (below random) on 60 random train rows. Root cause:
+forcing a single prompt to emit both P_DE and P_up_given_DE made the LLM
+override Replogle direction with weak mechanism reasoning.
+
+**Result on same 60 train rows (seed=123)**
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| Random | 0.500 | 0.500 | 0.500 |
+| Replogle alone (apples-to-apples) | 0.531 | 0.471 | 0.501 |
+| **Attempt 03** (one prompt KG+celltype) | 0.654 | **0.451** | 0.552 |
+| **Attempt 04** (two prompts, VCWorld port) | 0.601 | **0.679** | **0.640** |
+| Reference: attempt 01 whole-train Replogle | 0.541 | 0.663 | 0.602 |
+| Reference: top-4 Kaggle LB band | — | — | 0.628 – 0.650 |
+
+**Build artifacts (committed)**
+- `pipeline/bmdm_context.py` — rich BMDM cell-state paragraph
+- `pipeline/gene_desc.py` + `data/gene_desc.json` — NCBI/MGI summaries, 87% coverage via human-ortholog backfill
+- `pipeline/retrieve_examples.py` — KG-similarity retrieval of K=10 train (pert', gene') pairs with randomized labels (vote-bias defense)
+- `pipeline/prompt_builder_v2.py` — `build_de_prompt`, `build_dir_prompt`
+- `scripts/build_gene_desc.py` + `scripts/extend_gene_desc.py` — one-time desc cache
+- `scripts/eval_metric_v2.py` — eval runner (async, configurable concurrency)
+- 19 / 19 existing pipeline tests still pass
+
+**Architecture choices that mattered**
+- DE and DIR are two independent prompts; DIR omits Replogle scalar
+- Retrieval uses STRING + Reactome co-membership (existing KG index from attempt 03)
+- Exemplar labels are RANDOMIZED in-prompt — proves question is well-defined
+- BMDM context paragraph includes lineage-silent programs (cell cycle, adaptive immunity)
+  so the model can reject genes that are biologically inert in BMDM
+
+**Cost so far (DeepSeek probes)**: ~$1.5 total across all evaluation rounds.
+
+**Next**: user runs full 1,813 rows × 2 prompts × 3 seeds on GPT to get a real LB score. See `attempts/04_vcworld_port/result.md`.
+
+---
+
 ## 2026-06-04 · attempt 03 (offline build) · KG + cell-type guidance prompts
 
 Built Layer 2 (mouse KG mechanism) + Layer 3 (cross-cell-type transfer guide) and

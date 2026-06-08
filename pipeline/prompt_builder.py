@@ -20,7 +20,9 @@ You will receive ONE (perturbed_gene, target_gene) pair. Decide:
   (a) P_DE: probability the target gene is significantly differentially expressed (FDR<5% AND |log2FC|>=log2(1.5)≈0.585)
   (b) P_up_given_DE: if DE, probability it is upregulated rather than downregulated
 
-Both outputs are integers in [0, 100]. Output the two numbers on the LAST TWO lines, nothing after."""
+Both outputs are integers in [0, 100]. The LAST TWO lines must be exactly:
+P_DE: <integer>
+P_up_given_DE: <integer>"""
 
 
 _CONTEXT = """## Experimental context (binding)
@@ -75,9 +77,6 @@ def _format_replogle_block(prior: ReplogPrior, pert: str, gene: str) -> str:
 
     lines = [
         "## Cross-species CRISPRi prior (Replogle K562 + RPE1, averaged)",
-        f"Note: K562 (leukemia) and RPE1 (epithelial) are NOT macrophages. Treat as DIR prior",
-        f"only; DE detection in BMDM is poorly conserved (calibrated DIR-AUROC=0.66, DE-AUROC=0.54).",
-        f"",
         f"Human ortholog of perturbed gene `{pert}` = `{hpert}`.",
         f"In Replogle CRISPRi, KD of {hpert}:",
         f"  Top upregulated:   " + ", ".join(f"{t['mouse_symbol']} (logFC={t['logfc']:+.2f})" for t in tops['up']),
