@@ -1,7 +1,8 @@
-"""Attempt-06 validation: Track-A compliant single-call prompt on the same
-60 random train rows (seed=123) used to grade attempts 03 / 04 / 05.
+"""Track-A single-call eval. Output dir is parameterized by --out-attempt.
 
-One LLM call per (pert, gene) emits BOTH integers (P_DE + P_up_given_DE).
+Used by attempt 06 (--out-attempt 06_track_a_single_call) and
+attempt 07 (--out-attempt 07_no_anchors). One LLM call per (pert, gene)
+emits BOTH integers (P_DE + P_up_given_DE).
 """
 from __future__ import annotations
 import argparse, asyncio, csv, json, random, sys, time
@@ -18,7 +19,7 @@ from pipeline.gene_desc import default as gene_desc_default
 from pipeline.output_parser import parse
 
 KEY_FILE = Path('/data3/yy/key.env')
-OUT_DIR = ROOT / 'attempts/06_track_a_single_call/outputs/eval60'
+# OUT_DIR is set in main_async from --out-attempt
 
 
 def load_key() -> str:
@@ -35,9 +36,9 @@ def pick_random(n: int, seed: int):
     return rows[:n]
 
 
-async def run_one(sem, client, row, prompt, max_tokens):
+async def run_one(sem, client, row, prompt, max_tokens, out_dir):
     rid = row['id']
-    out_path = OUT_DIR / 'single' / f'{rid}.json'
+    out_path = out_dir / 'single' / f'{rid}.json'
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
         return json.loads(out_path.read_text())
@@ -88,10 +89,12 @@ def auroc(y, s):
 
 
 async def main_async(args):
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = ROOT / f'attempts/{args.out_attempt}/outputs/eval60'
+    out_dir.mkdir(parents=True, exist_ok=True)
     client = openai.AsyncOpenAI(
         api_key=load_key(), base_url='https://api.deepseek.com/v1', timeout=600,
     )
+    print(f'output dir: {out_dir}')
 
     prior = ReplogPrior()
     kg = KGRetrieval()
@@ -118,7 +121,7 @@ async def main_async(args):
           f'max_tokens={args.max_tokens})')
 
     sem = asyncio.Semaphore(args.concurrency)
-    futures = [run_one(sem, client, row, prompt, args.max_tokens)
+    futures = [run_one(sem, client, row, prompt, args.max_tokens, out_dir)
                for row, prompt in tasks]
 
     t0 = time.time()
@@ -174,9 +177,10 @@ async def main_async(args):
         print(f'COMBINED  = {(de_auc + drc) / 2:.3f}')
     print()
     print('=== Reference on same 60 rows ===')
-    print('  Attempt 03 (one prompt, KG+celltype):    DE=0.654 DIR=0.451 COMBINED=0.552')
-    print('  Attempt 04 (two prompts, RANDOM labels): DE=0.601 DIR=0.679 COMBINED=0.640')
-    print('  Attempt 05 (two prompts, REAL labels):   DE=0.610 DIR=0.665 COMBINED=0.637')
+    print('  Attempt 03 (one prompt, KG+celltype):       DE=0.654 DIR=0.451 COMBINED=0.552')
+    print('  Attempt 04 (two prompts, RANDOM labels):    DE=0.601 DIR=0.679 COMBINED=0.640')
+    print('  Attempt 05 (two prompts, REAL labels):      DE=0.610 DIR=0.665 COMBINED=0.637')
+    print('  Attempt 06 (single call + prescr. anchors): DE=0.559 DIR=0.611 COMBINED=0.585')
 
 
 def parse_args():
@@ -185,6 +189,8 @@ def parse_args():
     ap.add_argument('--seed', type=int, default=123)
     ap.add_argument('--concurrency', type=int, default=8)
     ap.add_argument('--max-tokens', type=int, default=6000)
+    ap.add_argument('--out-attempt', type=str, default='07_no_anchors',
+                    help='attempt folder under attempts/ to write outputs to')
     return ap.parse_args()
 
 

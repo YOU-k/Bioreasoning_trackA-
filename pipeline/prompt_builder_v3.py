@@ -1,4 +1,4 @@
-"""Track-A compliant single-call prompt builder (attempt 06).
+"""Track-A compliant single-call prompt builder (attempts 06 + 07).
 
 Produces ONE prompt per (pert, gene) query that elicits BOTH integers in
 one LLM response:
@@ -10,14 +10,25 @@ The runner then folds:
     p_up   = P_DE/100 * P_up_given_DE/100
     p_down = P_DE/100 * (1 - P_up_given_DE/100)
 
-Three deliberate additions over attempt 05:
+Three additions over the two-prompt attempt 05 surface that survived
+attempt 06's failure analysis:
 
-1. Direction prior — when direction evidence is weak, default to ~62 rather
-   than 50. Train DE distribution is up:down ≈ 2.2:1 (≈ 0.69 up).
-2. Anti-storytelling guard — explicit rule that plausibility ≠ prediction,
-   so the absence of pert-specific evidence is itself evidence FOR `none`.
-3. Decoupling rule — high direction confidence must NOT inflate P_DE; the
-   two integers measure different things.
+1. Anti-storytelling guard (R1) — explicit qualitative rule that
+   plausibility ≠ prediction; absence of pert-specific evidence is itself
+   evidence FOR `none`.
+2. BMDM context rule (R3) — silent vs expressed vs inducible programs.
+3. Replogle direction-transfer rule (R5) — when cross-species transfer is
+   reliable.
+4. Decoupling rule (R6) — high direction confidence does NOT inflate P_DE.
+
+Attempt 06 ALSO tried two prescriptive numerical anchors that BACKFIRED
+and were removed in attempt 07:
+- "default P_up ≈ 62" → 26/60 rows returned exactly 62 (lazy escape).
+- "lean P_DE toward 15-25" → DE compression at the low end killed ranking.
+
+Attempt 07 replaces these with **descriptive tier ladders** that say what
+each band of P_DE / P_up_given_DE *means* in terms of evidence strength,
+without giving the model a printed integer to copy.
 
 Retrieval is unchanged from attempt 05: paper §3.4.2 analog + contrast pools
 with real labels (k_a=5 + k_c=5).
@@ -44,17 +55,13 @@ These are DIFFERENT quantities. High direction confidence does NOT imply high P_
 
 _RULES = """Decision rules (read these BEFORE reasoning):
 
-R1. Plausibility ≠ prediction. A mechanism that "could plausibly cause DE" is NOT evidence of DE. Most pairs are `none` because they failed the magnitude/FDR cutoff, not because no mechanism exists.
+R1. Plausibility ≠ prediction. A mechanism that "could plausibly cause DE" is NOT evidence of DE. Most pairs are `none` because they failed the magnitude/FDR cutoff, not because no mechanism exists. Absence of pert-specific evidence is itself evidence FOR `none`.
 
-R2. Absence of pert-specific evidence is evidence FOR `none`. If the analogue cases below are weak/distant and the cascade is indirect, lean P_DE toward 15-25, not toward 50.
+R2. Match the BMDM context. Genes in silent BMDM programs (cell cycle, adaptive immunity, neuronal/epithelial lineage) usually stay silent under KD of upstream regulators. Genes in actively expressed BMDM programs (TLR, NF-κB, ISR, IFN, ER, ribosome) are easier to perturb.
 
-R3. Match the BMDM context. Genes in silent BMDM programs (cell cycle, adaptive immunity, neuronal/epithelial lineage) usually stay silent under KD of upstream regulators. Genes in actively expressed BMDM programs (TLR, NF-κB, ISR, IFN, ER, ribosome) are easier to perturb.
+R3. Replogle direction transfers for cell-autonomous programs (translation, ISR, proteostasis, chromatin). It is UNRELIABLE for macrophage-specific programs (TLR/NLR, NF-κB, IFN-I, MHC-II) — use BMDM context instead.
 
-R4. Direction prior. In the train DE set, perturbations push targets UP about 2.2× more often than DOWN (train up:down ≈ 0.69 : 0.31). When direction evidence is genuinely weak, default P_up_given_DE ≈ 62, not 50. Override with signed-pathway logic if available (KD of an activator → DOWN; KD of a repressor / stress trigger → UP).
-
-R5. Replogle direction transfers for cell-autonomous programs (translation, ISR, proteostasis, chromatin). It is UNRELIABLE for macrophage-specific programs (TLR/NLR, NF-κB, IFN-I, MHC-II) — use BMDM context instead.
-
-R6. The two integers are independent. Estimate P_DE first using R1-R3 and R5 (DE-magnitude logic), then estimate P_up_given_DE using R4 and signed-pathway logic. Do not let one anchor the other."""
+R4. The two integers are independent. Estimate P_DE using DE-magnitude logic (R1-R3 + analog/contrast + Replogle scalar). Estimate P_up_given_DE using direction logic (activator/repressor parity + signed pathway + analog UP/DOWN pattern). Do not let one anchor the other: "if DE, surely up" only justifies high P_up_given_DE — it does NOT inflate P_DE."""
 
 
 _PROTOCOL = """Reasoning protocol (≤ 2 lines each, terse):
@@ -62,10 +69,27 @@ _PROTOCOL = """Reasoning protocol (≤ 2 lines each, terse):
 Step A1 — Mechanism class of `{pert}`: (TF / kinase / chaperone / aminoacyl-tRNA synthetase / ER-UPR / IFN / chromatin / ribosome / ...). Which analogue cases below are closest?
 Step A2 — BMDM relevance of `{gene}`: which BMDM program (expressed / silent / inducible)? Does that program normally respond to perturbations of `{pert}`'s class?
 Step A3 — Cascade: trace KD `{pert}` → pathway / TF / stress program → `{gene}`. Note path length and confidence.
-Step A4 — DE call (P_DE): apply R1-R3, R5. Compare to analogue vs contrast cases. Output integer 0-100.
+Step A4 — DE call: locate the query on the P_DE ladder (see ladder below). Compare analogue vs contrast cases; apply R1-R3.
 
 Step B1 — Direction logic: is `{pert}` (or its immediate downstream node) an ACTIVATOR or REPRESSOR of programs that include `{gene}`? Apply: KD of activator → DOWN; KD of repressor → UP; KD that triggers ISR/UPR/inflammation → stress-response targets UP.
-Step B2 — Direction call (P_up_given_DE): apply R4-R5 and signed-pathway logic. Output integer 0-100; default ≈ 62 when evidence is weak."""
+Step B2 — Direction call: locate the query on the P_up_given_DE ladder (see ladder below). Apply R3 + signed-pathway logic.
+
+P_DE ladder — locate the query on this scale of DE-magnitude evidence:
+   90-100  direct, well-established BMDM regulation (analogues + Replogle + signed cascade all agree)
+   70-89   strong pathway link + analogue / Replogle support
+   50-69   plausible link, context uncertain
+   30-49   weak / indirect link, multiple confound paths
+   10-29   active reason to expect NO effect (silent program, distance, paralog rescue)
+    0-9    strongly contradicted
+
+P_up_given_DE ladder — locate the query on this scale of direction evidence:
+   90-100  `{pert}` clearly represses `{gene}` (KD releases → UP); or strong stress trigger → stress-response UP
+   70-89   pathway-level evidence for derepression / stress-induced UP
+   55-69   slight lean UP (analogues + Replogle agree)
+   45-54   ambiguous direction (no signed path, mixed analogue evidence)
+   30-44   slight lean DOWN
+   11-29   pathway-level evidence for activation removal → DOWN
+    0-10   `{pert}` clearly activates `{gene}` (KD reduces → DOWN)"""
 
 
 _OUTPUT_FORMAT = """OUTPUT FORMAT (STRICT — every step on one short line; final two lines MUST match exactly):

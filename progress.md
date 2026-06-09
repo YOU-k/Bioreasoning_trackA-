@@ -4,6 +4,49 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 (still later) · attempt 07 · Single-call without anchors — ACCEPTABLE, ship
+
+Stripped attempt 06's two prescriptive numerical anchors (R2 "lean toward
+15-25" and R4 "default 62") and restored attempt 04/05's tier-anchor
+ladders (90-100 / 70-89 / …) for both P_DE and P_up_given_DE. Tiers
+describe what evidence corresponds to each band; they don't tell the
+model where to default. Architecture unchanged: single LLM call → both
+integers; analog+contrast retrieval; logit-fused 3-seed runner.
+
+**Result on the same 60 train rows (seed=123)**
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| Attempt 03 (one prompt) | 0.654 | 0.451 | 0.552 |
+| Attempt 04 (two prompts, random labels) | 0.601 | 0.679 | **0.640** |
+| Attempt 05 (two prompts, real labels) | 0.610 | 0.665 | 0.637 |
+| Attempt 06 (single call + prescriptive anchors) | 0.559 | 0.611 | 0.585 |
+| **Attempt 07 (single call + tier ladders)** | **0.601** | **0.645** | **0.623** |
+
+Combined +0.038 vs attempt 06; -0.014 vs the best non-compliant attempt 05.
+That 0.014 is the documented cost of Track-A compliance (3 calls per
+question instead of 6).
+
+**Per pre-registered gate**: 0.623 ∈ [0.60, 0.634] → ACCEPTABLE. Ship.
+
+**Failure-mode reduction**: rows defaulting to a single P_up integer
+dropped from 26/60 (A06, P_up=62) to 17/60 (A07, P_up=50). Still some
+ambiguous-direction clustering at the band midpoint, but less severe.
+
+**Remaining loss sources** (out of scope for shipping):
+- ~17 rows tied at P_up=50 give up DIR ranking signal — could fix with
+  post-hoc shrinkage in `runner.py` toward the train prior 0.62.
+- A few high-confidence direction flips (`Dph3_Hmox1`, `Cct5_Tuba1c`)
+  suggest single-LLM direction calls plateau here without external
+  signed-pathway features.
+
+**Recommendation**: ship `pipeline/prompt_builder_v3.py` as the Track-A
+submission prompt with seeds 42/43/44 against all 1,813 test rows.
+
+See `attempts/07_no_anchors/result.md`.
+
+---
+
 ## 2026-06-09 (later) · attempt 06 · Single-call Track-A prompt — FAIL
 
 Collapsed attempt-05's DE + DIR pair into a Track-A-compliant single-call

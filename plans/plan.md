@@ -27,30 +27,58 @@ them into a single-call prompt that emits both `P_DE` and `P_up_given_DE`.
 
 ## Pending — in order
 
-### P1 · Strip prescriptive anchors from the single-call prompt (attempt 07)
-Attempt 06 confirmed the single-call architecture is viable (60/60 parse,
-4k token budget fine) but its two prescriptive numerical anchors backfired —
-43% of rows returned the printed default P_up=62, and "lean P_DE toward
-15-25" compressed both true DE and true `none` into the same low bucket.
-Combined dropped 0.637 → 0.585. See `attempts/06_track_a_single_call/result.md`.
+### P1 · Full Track-A GPT-OSS-120B run with attempt 07 prompts (user-owned)
 
-Attempt 07 plan:
-- Keep `pipeline/prompt_builder_v3.py` single-call architecture and the
-  `runner.fuse_q_r_logit` 3-seed fusion (both prompt-independent and right).
-- Restore attempt 04/05's **tier-anchor language** (90-100 / 70-89 / …)
-  where each band describes *what the evidence looks like at that tier*
-  without telling the model where to default to. The model self-locates
-  on the ladder; the prior never appears as a literal integer.
-- Push the train direction prior (up:down ≈ 2.2:1) into **runner-side
-  shrinkage**: pull r toward 0.62 when the LLM emits 0.45 < r < 0.55,
-  otherwise leave it alone. This is a 5-line change in `runner.py`.
-- Validation gate same as attempt 06.
+Attempt 07 cleared the validation gate (Combined = 0.623, ACCEPTABLE band).
+`pipeline/prompt_builder_v3.py` is the Track-A submission prompt.
 
-### P2 · (was P2) Submission format dry-run (before any real GPT spend)
+Run: 1,813 test rows × 3 seeds (42 / 43 / 44) × 1 call each = 5,439 LLM calls.
+Aggregate with `pipeline/runner.assemble_submission()` (uses `fuse_q_r_logit`
+for 3-seed q/r fusion). Package the zip per Track-A spec. Submit.
+
+- Deliverable: `attempts/07_no_anchors/outputs/{seed}/{id}.txt` and `.json`,
+  then `submission.zip`, then the real Kaggle Public LB score.
+- Compliance budget: 3 calls per question ✓. Max prompt tokens 4096 ✓
+  (attempt 07 prompts are 2280-2360 tokens).
+- Decision point: LB score tells us whether further iteration is worth it.
+
+### P2 · Submission format dry-run (before P1)
 - Pull `sample_submission_track_a.csv` from Kaggle Data tab
 - Diff column names / types against `pipeline/runner.assemble_submission()`
 - Test the zip on a one-row submission to confirm Kaggle accepts the format
 - Cost of skipping: 0-score submission, burns a daily quota slot
+
+### P3 · Macro-per-gene baseline audit (before claiming method validity)
+Per `discussion/next_paradigm_gpt.md` §7: overall AUROC can be confounded
+by gene response frequency (a gene-prior voting baseline can win on overall
+AUROC while being chance on per-gene). Run on the same 60-row probe:
+
+- target-only baseline: predict P_DE = global rate of `gene` going DE in
+  rest of train, ignore pert
+- pert-only baseline: same with pert
+- attempt 07 prompts: stratify AUROC by gene class (silent vs inducible
+  BMDM programs); compute macro-per-gene AUROC
+- if attempt 07 ≈ gene-only on macro-per-gene, our gains are gene-prior
+
+### P4 · Runner-side direction-prior shrinkage (recover the 0.014 to A05)
+Attempt 07 still has 17/60 rows landing at P_up = 50 (ambiguous midpoint).
+Try post-hoc shrinkage in `pipeline/runner.py`: when LLM emits `r ∈ [0.45,
+0.55]`, pull toward 0.62 (the train prior). Cheap to test on attempt 07's
+existing outputs without re-running the LLM.
+
+### P5 · Retrieval-quality ablation (conditional on LB)
+If LB lands ≤ 0.60, retrieval quality may be the bottleneck. Try:
+- k_a=10 + k_c=10 (more analogues to reason from)
+- Weight STRING edges by confidence band
+- Tune the pos/neg balance — DIR contrast pool is often empty (e.g.,
+  aaRS→ISR queries have 0 down-going analogues). Consider broader KG
+  neighborhoods when contrast pool < 2.
+
+### P6 · Augment exemplars beyond Reactome+STRING
+Genes with no Reactome mouse annotation (46% of test) get weak retrieval. Add:
+- GO BP overlap (`mgi.gaf` already downloaded in attempt 03)
+- Co-expression neighbours (ImmGen — postpone unless retrieval ablation
+  shows it's the limit)
 
 ### P2 · Submission format dry-run (before any real GPT spend)
 - Pull `sample_submission_track_a.csv` from Kaggle Data tab

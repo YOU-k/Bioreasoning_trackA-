@@ -11,15 +11,19 @@ def test_single_call_prompt_emits_both_keys():
     assert 'BMDM' in p and 'CRISPRi' in p
 
 
-def test_single_call_prompt_has_direction_prior_and_guard():
+def test_single_call_prompt_has_guards_and_tier_ladders():
     p = build_track_a_prompt('Aars', 'Atf4')
-    # Direction prior 62 must be in the rules
-    assert '62' in p
-    assert '2.2' in p, "should cite the 2.2:1 train up:down ratio"
-    # Anti-storytelling guard
+    # Anti-storytelling guard (qualitative)
     assert 'Plausibility' in p or 'plausibility' in p
     # Decoupling rule: high direction confidence ≠ high P_DE
-    assert 'independent' in p or 'NOT imply' in p
+    assert 'independent' in p or 'NOT imply' in p or 'NOT inflate' in p
+    # Tier ladders must be present (descriptive, not prescriptive)
+    assert '90-100' in p, "P_DE ladder top band missing"
+    assert '70-89' in p, "ladder mid-high band missing"
+    assert '10-29' in p, "ladder mid-low band missing"
+    # And no prescriptive default integers that the model can copy
+    assert 'default ≈ 62' not in p, "prescriptive 62 default leaked back in"
+    assert 'lean P_DE toward 15-25' not in p, "prescriptive 15-25 anchor leaked back in"
 
 
 def test_single_call_prompt_token_budget():
@@ -78,7 +82,7 @@ def test_logit_fusion_consistency_with_q_r_definition():
 
 if __name__ == '__main__':
     test_single_call_prompt_emits_both_keys()
-    test_single_call_prompt_has_direction_prior_and_guard()
+    test_single_call_prompt_has_guards_and_tier_ladders()
     test_single_call_prompt_token_budget()
     test_parser_extracts_both_from_combined_output()
     test_logit_fusion_extreme_seed_does_not_dominate_other_head()
