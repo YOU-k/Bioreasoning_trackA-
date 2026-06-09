@@ -1,0 +1,35 @@
+=== Sample composition ===
+  60 random train rows (seed=123)
+  rows with no gene-neighbor in train (after exclude_pert): 2
+  rows with no pert-neighbor in train (after exclude_gene): 0
+  attempt 07 predictions found: 60/60 (missing: 0)
+
+=== Metrics ===
+  Random                          DE=0.409  DIR=0.583  Combined=0.496
+  Gene-only baseline              DE=0.000  DIR=0.746  Combined=0.373
+  Pert-only baseline              DE=0.255  DIR=0.683  Combined=0.469
+  Gene+Pert hybrid                DE=0.123  DIR=0.817  Combined=0.470
+  Attempt 07 (single-call LLM)    DE=0.601  DIR=0.645  Combined=0.623
+
+=== Diagnostics ===
+  Spearman(attempt07 P_DE, gene-only P_DE) = -0.081
+  Spearman(attempt07 P_DE, pert-only P_DE) = -0.038
+  Spearman(attempt07 P_up, gene-only P_up) = -0.054
+  Spearman(attempt07 P_up, pert-only P_up) = +0.314
+
+  (High correlation = LLM is largely reading the prior;
+   low correlation = LLM is doing independent reasoning.)
+
+=== Disagreement audit (DE call, threshold = 0.5) ===
+  Agree:    29/60
+  Disagree: 31/60
+    of which attempt 07 right: 31
+    of which gene-only right:  0
+
+wrote raw audit to /data/yy_data/Bioreasoning_trackA/attempts/08_audit_baselines/audit.json
+
+=== VERDICT ===
+  Attempt 07 Combined: 0.623
+  Gene-only Combined:  0.373
+  Δ (attempt 07 − gene-only) = +0.250
+  -> World 1: ship attempt 07, the LLM is doing real reasoning

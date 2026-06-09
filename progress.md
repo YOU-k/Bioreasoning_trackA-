@@ -4,6 +4,59 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 (final) · attempt 08 · Baseline audit — eval60 was leakage-contaminated
+
+Ran gene-only, pert-only, and gene+pert baselines on the same 60-row probe
+(seed=123). Two strategic findings that change the priority queue:
+
+**DE is real, DIR is contaminated.**
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| Random | 0.409 | 0.583 | 0.496 |
+| Gene-only baseline | 0.000 | **0.746** | 0.373 |
+| Pert-only baseline | 0.255 | 0.683 | 0.469 |
+| Gene+Pert hybrid | 0.123 | **0.817** | 0.470 |
+| **Attempt 07** | **0.601** | 0.645 | 0.623 |
+
+- **Attempt 07 DE-AUROC = 0.601** is real reasoning. Gene-only DE is 0.000
+  (anti-correlated with label thanks to the competition's per-pert negative
+  sampling). Disagreement audit: in 31/31 rows where attempt 07 and gene-only
+  disagree on the DE call, attempt 07 is correct.
+- **Attempt 07 DIR-AUROC = 0.645 LOSES to gene-only baseline (0.746)** and
+  to gene+pert hybrid (0.817). The LLM is destroying information that a
+  5-line lookup gives for free.
+
+**eval60 has gene-prior leakage that test set does NOT have.**
+
+Stratified DIR-AUROC by `n_same_gene_in_train` (excluding query pert):
+
+| Bucket | n_rows | Attempt 07 DIR | Gene-only DIR |
+|---|---|---|---|
+| Low gene-prior (1-3 neighbors) | 9 | **0.438** | 0.625 |
+| High gene-prior (≥11 neighbors) | 24 | 0.741 | 0.787 |
+
+Test rows have **zero** same-gene neighbors (double-disjoint split).
+The bucket that matches the test condition is "low gene-prior", where
+attempt 07 DIR is sub-random (0.438). Estimated attempt-07 DIR-AUROC on
+real test ≈ 0.45-0.50, NOT 0.645.
+
+**The 0.014 Combined gap between A04 / A05 / A07 was inside the leakage
+band on DIR**. Those attempts were not actually ranking better against
+each other on the data structure that matters for test.
+
+**Strategic shift**:
+
+- Do NOT ship attempt 07 prompt as the Track-A submission until we have
+  a double-disjoint validation number.
+- DE reasoning is the asset to protect (0.601 is real, room to push higher).
+- DIR is the bottleneck on unseen genes; mechanism reasoning alone doesn't
+  beat gene-typical-direction lookup, and that lookup is unavailable at test.
+
+See `attempts/08_audit_baselines/result.md`.
+
+---
+
 ## 2026-06-09 (still later) · attempt 07 · Single-call without anchors — ACCEPTABLE, ship
 
 Stripped attempt 06's two prescriptive numerical anchors (R2 "lean toward

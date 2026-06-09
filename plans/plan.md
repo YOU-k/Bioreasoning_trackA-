@@ -25,60 +25,86 @@ them into a single-call prompt that emits both `P_DE` and `P_up_given_DE`.
 | DIR prompt | Replogle scalar OMITTED, activator/repressor logic, integer P_up_given_DE out | ✅ research surface |
 | Single-call Track-A prompt | One call per seed, emits both integers | ⏳ required before final submission |
 
+## Strategic frame after the 2026-06-09 baseline audit
+
+The audit (`attempts/08_audit_baselines/result.md`) showed:
+
+- **DE is real**: attempt 07 beats gene-only DE-AUROC by +0.60. Reasoning is
+  doing real work; we should protect it.
+- **DIR was contaminated**: attempt 07 DIR-AUROC (0.645) loses to a 5-line
+  gene-only baseline (0.746) on eval60, AND collapses to 0.438 on the
+  low-gene-prior subset that matches test-set conditions.
+- **The 0.014 Combined gap between A04 / A05 / A07 is leakage noise**, not
+  real ranking signal. Stop optimizing it.
+- **eval60 is not a faithful test surrogate.** Test rows have zero same-gene
+  neighbors in train; eval60 rows have many.
+
+So the priority queue is rewritten.
+
 ## Pending — in order
 
-### P1 · Full Track-A GPT-OSS-120B run with attempt 07 prompts (user-owned)
+### P1 · Build a true double-disjoint validation probe (BLOCKER for any LB-relevant claim)
 
-Attempt 07 cleared the validation gate (Combined = 0.623, ACCEPTABLE band).
-`pipeline/prompt_builder_v3.py` is the Track-A submission prompt.
+Sample 60 train rows where:
+- the row's `pert` does NOT appear in the rest of train, AND
+- the row's `gene` does NOT appear in the rest of train.
 
-Run: 1,813 test rows × 3 seeds (42 / 43 / 44) × 1 call each = 5,439 LLM calls.
-Aggregate with `pipeline/runner.assemble_submission()` (uses `fuse_q_r_logit`
-for 3-seed q/r fusion). Package the zip per Track-A spec. Submit.
+This mimics the test-set's double-disjoint structure. Re-evaluate attempts
+04 / 05 / 06 / 07 on this probe. The numbers from THIS probe are the only
+ones that translate to Track-A LB. eval60 numbers are leakage-contaminated.
 
-- Deliverable: `attempts/07_no_anchors/outputs/{seed}/{id}.txt` and `.json`,
-  then `submission.zip`, then the real Kaggle Public LB score.
-- Compliance budget: 3 calls per question ✓. Max prompt tokens 4096 ✓
-  (attempt 07 prompts are 2280-2360 tokens).
-- Decision point: LB score tells us whether further iteration is worth it.
+If true double-disjoint rows are too few in train (≤ 20), relax to
+single-disjoint (pert OR gene unseen) and report both numbers.
 
-### P2 · Submission format dry-run (before P1)
+- Deliverable: `attempts/09_double_disjoint_probe/{README,result}.md` plus
+  re-runs of A04 / A05 / A06 / A07 on the new probe.
+- Cost: 60 rows × N attempts × DeepSeek ≈ $0.30 per attempt.
+
+### P2 · Address the DIR bottleneck on unseen genes
+
+DIR is where we lose. Mechanism reasoning over unseen genes is sub-random
+(0.438). Options to try, in increasing cost:
+
+- **a) Surface Replogle direction more aggressively** in the prompt. It IS
+  the only gene-typical-direction signal we have for unseen genes (via
+  ortholog). Currently used as "scalar context"; could be promoted to a
+  primary anchor.
+- **b) Add gene functional category** at retrieval time (TF / kinase /
+  chaperone / inducible-stress / ribosomal / …) so the LLM can borrow
+  "this gene class typically goes up under stress".
+- **c) Pre-compute signed-pathway features** in the KG (sign of P → ... → G).
+  Heavier KG engineering.
+
+Run these against P1's double-disjoint probe, not eval60.
+
+### P3 · DE-AUROC headroom
+
+DE is the asset (0.601 vs gene-only 0.000). Could it go to 0.65? 0.70?
+We don't have evidence of a ceiling. Probably worth probing — but only
+after P1 gives an honest baseline.
+
+### P4 · Submission format dry-run
+
 - Pull `sample_submission_track_a.csv` from Kaggle Data tab
 - Diff column names / types against `pipeline/runner.assemble_submission()`
 - Test the zip on a one-row submission to confirm Kaggle accepts the format
 - Cost of skipping: 0-score submission, burns a daily quota slot
 
-### P3 · Macro-per-gene baseline audit (before claiming method validity)
-Per `discussion/next_paradigm_gpt.md` §7: overall AUROC can be confounded
-by gene response frequency (a gene-prior voting baseline can win on overall
-AUROC while being chance on per-gene). Run on the same 60-row probe:
+### P5 · Track-A submission (post P1 + P2)
 
-- target-only baseline: predict P_DE = global rate of `gene` going DE in
-  rest of train, ignore pert
-- pert-only baseline: same with pert
-- attempt 07 prompts: stratify AUROC by gene class (silent vs inducible
-  BMDM programs); compute macro-per-gene AUROC
-- if attempt 07 ≈ gene-only on macro-per-gene, our gains are gene-prior
+ONLY after P1 + P2 show a real double-disjoint Combined > some threshold
+we agree on (say 0.55 — conservative because of attempt 07's DIR risk).
 
-### P4 · Runner-side direction-prior shrinkage (recover the 0.014 to A05)
-Attempt 07 still has 17/60 rows landing at P_up = 50 (ambiguous midpoint).
-Try post-hoc shrinkage in `pipeline/runner.py`: when LLM emits `r ∈ [0.45,
-0.55]`, pull toward 0.62 (the train prior). Cheap to test on attempt 07's
-existing outputs without re-running the LLM.
+Full GPT-OSS-120B run: 1,813 test rows × 3 seeds × 1 call (compliant).
+Aggregate with `pipeline/runner.assemble_submission()` (uses fuse_q_r_logit).
 
-### P5 · Retrieval-quality ablation (conditional on LB)
-If LB lands ≤ 0.60, retrieval quality may be the bottleneck. Try:
-- k_a=10 + k_c=10 (more analogues to reason from)
-- Weight STRING edges by confidence band
-- Tune the pos/neg balance — DIR contrast pool is often empty (e.g.,
-  aaRS→ISR queries have 0 down-going analogues). Consider broader KG
-  neighborhoods when contrast pool < 2.
+## Deferred / closed
 
-### P6 · Augment exemplars beyond Reactome+STRING
-Genes with no Reactome mouse annotation (46% of test) get weak retrieval. Add:
-- GO BP overlap (`mgi.gaf` already downloaded in attempt 03)
-- Co-expression neighbours (ImmGen — postpone unless retrieval ablation
-  shows it's the limit)
+- **Runner-side direction-prior shrinkage** — closed. The audit showed DIR
+  on unseen genes is sub-random; shrinkage won't fix that. Need real signal
+  source change, not output post-processing.
+- **Retrieval quality ablation (was P5)** — deferred. Don't tune until
+  P1/P2 give a probe number worth tuning against.
 
 ### P2 · Submission format dry-run (before any real GPT spend)
 - Pull `sample_submission_track_a.csv` from Kaggle Data tab

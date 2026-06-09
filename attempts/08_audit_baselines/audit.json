@@ -1,0 +1,53 @@
+{
+  "metrics": [
+    {
+      "name": "Random",
+      "DE": 0.409,
+      "DIR": 0.583,
+      "Combined": 0.496
+    },
+    {
+      "name": "Gene-only baseline",
+      "DE": 0.0,
+      "DIR": 0.746,
+      "Combined": 0.373
+    },
+    {
+      "name": "Pert-only baseline",
+      "DE": 0.255,
+      "DIR": 0.683,
+      "Combined": 0.469
+    },
+    {
+      "name": "Gene+Pert hybrid",
+      "DE": 0.123,
+      "DIR": 0.817,
+      "Combined": 0.47
+    },
+    {
+      "name": "Attempt 07 (single-call LLM)",
+      "DE": 0.601,
+      "DIR": 0.645,
+      "Combined": 0.623
+    }
+  ],
+  "correlations": {
+    "spearman_p_de_gene": -0.0807,
+    "spearman_p_de_pert": -0.0375,
+    "spearman_p_up_gene": -0.0537,
+    "spearman_p_up_pert": 0.3137
+  },
+  "disagreement": {
+    "agree": 29,
+    "disagree": 31,
+    "attempt07_right_when_disagree": 31,
+    "gene_only_right_when_disagree": 0
+  },
+  "sample": {
+    "n_rows": 60,
+    "seed": 123,
+    "attempt_07_missing": 0,
+    "gene_no_neighbor": 2,
+    "pert_no_neighbor": 0
+  }
+}
