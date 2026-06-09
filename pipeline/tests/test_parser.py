@@ -48,10 +48,23 @@ def test_extract_task_specific_scores():
     assert abs(p_up - 0.95) < 1e-9
 
 
+def test_extract_task_specific_scores_loose_forms():
+    p_de, s_de = extract_p_de("Thus final integers: P_DE 30, P_up_given_DE 75.")
+    p_up, s_up = extract_p_up_given_de("Thus final values: P_DE maybe 18, P_up_given_DE maybe 54.")
+    p_up_short, s_up_short = extract_p_up_given_de("Direction uncertain but maybe P_up 60.")
+    assert s_de == 'ok'
+    assert s_up == 'ok'
+    assert s_up_short == 'ok'
+    assert abs(p_de - 0.30) < 1e-9
+    assert abs(p_up - 0.54) < 1e-9
+    assert abs(p_up_short - 0.60) < 1e-9
+
+
 if __name__ == '__main__':
     test_clean_parse()
     test_fallback_on_partial()
     test_safe_defaults_on_failure()
     test_clamps_oob_values()
     test_extract_task_specific_scores()
-    print('test_parser: 5/5 passed')
+    test_extract_task_specific_scores_loose_forms()
+    print('test_parser: 6/6 passed')
