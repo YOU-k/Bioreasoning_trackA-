@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path('/data/yy_data/Bioreasoning_trackA')
+ROOT = Path(__file__).resolve().parent.parent
 _DESC_FILE = ROOT / 'data' / 'gene_desc.json'
 
 

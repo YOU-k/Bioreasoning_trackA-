@@ -13,7 +13,7 @@ from __future__ import annotations
 import pickle, json, csv, numpy as np
 from pathlib import Path
 
-ROOT = Path('/data/yy_data/Bioreasoning_trackA')
+ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
 REPLOGLE_PKL = DATA / 'replogle_de.pkl'
 ORTHOLOG_JSON = DATA / 'mouse_to_human_ortholog.json'

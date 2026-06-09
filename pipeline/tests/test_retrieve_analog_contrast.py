@@ -66,10 +66,32 @@ def test_format_analog_contrast_renders_real_labels():
     assert 'Increase' in out_dir and 'Decrease' in out_dir
 
 
+def test_single_anchor_fallback_recovers_examples():
+    r = ExampleRetriever()
+    # In the shipped test split, this pair has pert-side KG support but
+    # little/no gene-side support. Retrieval should still surface examples.
+    analog, contrast = r.retrieve_analog_contrast(
+        'Stat2', 'Mx1', task='de', k_a=5, k_c=5, exclude_query=False, seed=42,
+    )
+    assert len(analog) + len(contrast) > 0
+
+
+def test_gene_only_fallback_recovers_examples():
+    r = ExampleRetriever()
+    # This pair has gene-side ER/proteostasis neighbors but no pert-side
+    # KG neighborhood in the filtered index. We should still get examples.
+    analog, contrast = r.retrieve_analog_contrast(
+        'Slc35b1', 'Pdia6', task='de', k_a=5, k_c=5, exclude_query=False, seed=42,
+    )
+    assert len(analog) + len(contrast) > 0
+
+
 if __name__ == '__main__':
     test_de_pools_split_correctly()
     test_dir_pools_exclude_none()
     test_exclude_query_drops_self()
     test_budget_respected()
     test_format_analog_contrast_renders_real_labels()
-    print('test_retrieve_analog_contrast: 5/5 passed')
+    test_single_anchor_fallback_recovers_examples()
+    test_gene_only_fallback_recovers_examples()
+    print('test_retrieve_analog_contrast: 7/7 passed')

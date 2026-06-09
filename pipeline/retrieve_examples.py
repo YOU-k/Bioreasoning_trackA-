@@ -4,9 +4,10 @@ For a test (pert*, gene*), select up to K=10 train pairs (pert', gene') where:
   - pert' is structurally close to pert* (STRING neighbors / Reactome shared)
   - gene' is structurally close to gene*  (same)
 
-Test set is double-disjoint vs train (no pert overlap, no gene overlap), so
-only "both-similar" pairs are possible — single-anchor patterns (same pert,
-similar gene) from VCWorld's original code are empty for this competition.
+Retrieval prefers examples where BOTH anchors are structurally similar. When
+one side has no KG neighborhood, it falls back to SINGLE-anchor examples
+(similar pert with any train gene, or similar gene with any train pert)
+instead of returning an empty evidence block.
 
 Two retrieval modes are provided:
 
@@ -28,7 +29,7 @@ from pathlib import Path
 from typing import Optional
 from .kg_retrieval import KGRetrieval
 
-ROOT = Path('/data/yy_data/Bioreasoning_trackA')
+ROOT = Path(__file__).resolve().parent.parent
 _TRAIN = ROOT / 'data' / 'train.csv'
 
 
@@ -137,12 +138,14 @@ class ExampleRetriever:
                                  seed: int = 42,
                                  ) -> tuple[list[tuple[str, str, str]],
                                             list[tuple[str, str, str]]]:
-        """Paper §3.4.2 retrieval.
+        """Paper §3.4.2 retrieval with single-anchor fallback.
 
         Splits train pairs into label-conditioned pools and ranks each by KG
-        similarity to the query (pert, gene). Pair similarity is defined as
-        sim_pert(pert, p') + sim_gene(gene, g'). Returns (analog, contrast)
-        where each list contains (pert', gene', real_label) triplets.
+        similarity to the query (pert, gene). Candidate ranking prefers
+        examples with BOTH anchors matched; when only one side is matched, the
+        candidate is still allowed as a fallback with lower priority.
+        Returns (analog, contrast) where each list contains
+        (pert', gene', real_label) triplets.
 
         task='de'  -> analog pool = {up, down}; contrast pool = {none}
         task='dir' -> analog pool = {up};       contrast pool = {down}
@@ -153,18 +156,19 @@ class ExampleRetriever:
         rng = random.Random(seed)
         pert_scores = dict(self._similar_perts_scored(pert, top_n=50))
         gene_scores = dict(self._similar_genes_scored(gene, top_n=50))
-        if not pert_scores or not gene_scores:
+        if not pert_scores and not gene_scores:
             return [], []
         candidates = []
-        for p2 in pert_scores:
-            for g2 in gene_scores:
-                lbl = self._pair_label.get((p2, g2))
-                if lbl is None:
-                    continue
-                if exclude_query and (p2 == pert or g2 == gene):
-                    continue
-                pair_sim = pert_scores[p2] + gene_scores[g2]
-                candidates.append((pair_sim, p2, g2, lbl))
+        for p2, g2, lbl in self._train:
+            if exclude_query and (p2 == pert or g2 == gene):
+                continue
+            ps = pert_scores.get(p2, 0.0)
+            gs = gene_scores.get(g2, 0.0)
+            anchor_count = int(ps > 0) + int(gs > 0)
+            if anchor_count == 0:
+                continue
+            pair_sim = ps + gs
+            candidates.append((anchor_count, pair_sim, p2, g2, lbl))
 
         if task == 'de':
             pos_labels = {'up', 'down'}
@@ -173,17 +177,17 @@ class ExampleRetriever:
             pos_labels = {'up'}
             neg_labels = {'down'}
 
-        pos_pool = [(s, p, g, l) for s, p, g, l in candidates if l in pos_labels]
-        neg_pool = [(s, p, g, l) for s, p, g, l in candidates if l in neg_labels]
-        # Sort descending by similarity; rng.shuffle as tie-breaker so identical
-        # scores don't always pick the same pair, but real label is preserved.
+        pos_pool = [(a, s, p, g, l) for a, s, p, g, l in candidates if l in pos_labels]
+        neg_pool = [(a, s, p, g, l) for a, s, p, g, l in candidates if l in neg_labels]
+        # Prefer two-anchor matches; break ties by total KG similarity, with a
+        # shuffle first so identical scores do not always return the same rows.
         rng.shuffle(pos_pool)
         rng.shuffle(neg_pool)
-        pos_pool.sort(key=lambda t: -t[0])
-        neg_pool.sort(key=lambda t: -t[0])
+        pos_pool.sort(key=lambda t: (-t[0], -t[1]))
+        neg_pool.sort(key=lambda t: (-t[0], -t[1]))
 
-        analog = [(p, g, l) for _, p, g, l in pos_pool[:k_a]]
-        contrast = [(p, g, l) for _, p, g, l in neg_pool[:k_c]]
+        analog = [(p, g, l) for _, _, p, g, l in pos_pool[:k_a]]
+        contrast = [(p, g, l) for _, _, p, g, l in neg_pool[:k_c]]
         return analog, contrast
 
     @staticmethod

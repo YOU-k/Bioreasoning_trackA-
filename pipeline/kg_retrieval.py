@@ -14,7 +14,7 @@ import json
 from collections import defaultdict, deque
 from pathlib import Path
 
-ROOT = Path('/data/yy_data/Bioreasoning_trackA')
+ROOT = Path(__file__).resolve().parent.parent
 KG = ROOT / 'data' / 'kg_index'
 
 

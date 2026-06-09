@@ -4,6 +4,52 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 · infra · Track-A compliance note + local GPT-OSS batch harness
+
+Validated the local GPT-OSS path for attempt-05-style prompts and recorded the
+current Track-A compliance interpretation.
+
+**Compliance note**
+- Kaggle Track A is safest to read as **3 total calls per question**: one call
+  each for seeds 42 / 43 / 44.
+- Therefore the current attempt-04/05 research surface (separate DE prompt +
+  DIR prompt per seed) is useful for ablation and local validation, but should
+  not be treated as the final submission path without collapsing it back to one
+  prompt per seed.
+
+**Infra / code changes**
+- Fixed repo-root path assumptions in `pipeline/{replogle_prior,kg_retrieval,gene_desc,retrieve_examples,runner}.py` so the current workspace data layout works.
+- Added task-specific parsers in `pipeline/output_parser.py`:
+  `extract_p_de(...)` and `extract_p_up_given_de(...)`.
+- Added `scripts/make_submission_v2.py` for DE/DIR split-output schema checks.
+- Added `scripts/test_gptoss_attempt05_local.py` (single-pair local GPT-OSS smoke test).
+- Added `scripts/run_inference_v2_local.py` (local batch runner for attempt-05 DE/DIR outputs).
+
+**Retrieval fix**
+- `pipeline/retrieve_examples.py` now falls back from BOTH-anchor retrieval to
+  SINGLE-anchor retrieval when one side has no KG neighborhood.
+- On the first 300 test rows, empty retrieval rates dropped from:
+  - DE: 121 -> 9
+  - DIR: 129 -> 9
+  - both empty: 121 -> 9
+
+**Local GPT-OSS findings**
+- Single-pair smoke test (`Aars -> Atf4`): DIR prompt reached
+  `P_up_given_DE: 95`; DE prompt often leaked `P_DE` mid-output but still
+  tended to overrun the output budget.
+- Dual-GPU batch (`limit=10`, seed 42) completed successfully with
+  `tensor_parallel_size=2`.
+- Output quality is still weak: DE extraction ok on 4/10 rows, DIR extraction
+  ok on 1/10 rows; most rows hit the 1200-token output cap.
+
+**Submission assembly**
+- Built a schema-check zip containing `submission.csv` + `prompt.txt` to verify
+  packaging only. It is not a real final submission because the staged run
+  mirrors seed 42 into seeds 43/44 and uses the non-compliant DE/DIR split
+  research surface.
+
+---
+
 ## 2026-06-08 (later) · attempt 05 · Paper-faithful VCWorld port (real labels)
 
 Re-read the actual paper (Wei et al., ICLR 2026 — `discussion/vcworld_paper.txt`)

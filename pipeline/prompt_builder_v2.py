@@ -41,26 +41,16 @@ Goal: ASSUMING `{gene}` is differentially expressed in response to CRISPRi knock
 
 _DE_STEPS = """Reasoning protocol (perform a stepwise biological simulation; do not text-match):
 
-1) Mechanism & analogue identification
-   What functional class does `{pert}` belong to (TF, kinase, chaperone, ribosomal, aminoacyl-tRNA synthetase, ER/UPR, IFN axis, chromatin remodeller, …)? Which of the listed example perts share that class or the same Reactome / STRING neighbourhood?
-
-2) Specificity & relevance in BMDM
-   - Is `{gene}` part of a program that BMDM expresses richly at baseline (TLR/NLR, NF-kB, IFN-I, MHC-II, ribosome, ER, ISR), or one BMDM keeps silent (cell cycle, adaptive immunity, neuronal/epithelial)?
-   - Given BMDM are post-mitotic and uncoligated, can the perturbation actually reach this readout?
-
-3) Downstream signalling cascade
-   Trace the cascade from KD of `{pert}` to a transcriptional consequence. Identify the TF or stress program that would (or would not) end up regulating `{gene}`.
-
-4) Causal bridge & evidence synthesis
-   Construct: KD `{pert}` -> Target/Pathway -> TF/Stress program -> `{gene}`. Compare to the analogue examples: do similar pert/gene pairs in train look like a 'something happens' regime or a 'nothing happens' regime? Note: analogue Result labels in the examples are RANDOMIZED to remove vote bias — use them only to confirm the question is biologically plausible, not as a label vote.
-
-5) Calibrated DE call
-   Output an integer P_DE in [0, 100] using these anchors:
-   90-100  direct, well-established BMDM regulation
-   70-89   strong pathway link + same direction in analogues / Replogle
-   50-69   plausible pathway link, BMDM context uncertain
-   30-49   weak / indirect link, lean toward null
-   10-29   active reason to expect NO effect (silent program, distance, paralog rescue)
+1) Mechanism & analogue: identify the functional class of `{pert}` and which listed examples are the closest analogues.
+2) BMDM specificity: decide whether `{gene}` belongs to a program BMDM expresses or keeps mostly silent.
+3) Cascade: trace KD `{pert}` -> pathway / TF / stress program -> `{gene}`.
+4) Evidence synthesis: compare the query to analogue vs contrast cases; reason, do not vote.
+5) Final DE call: output integer P_DE in [0, 100].
+   90-100 direct, well-established BMDM regulation
+   70-89  strong pathway link + analogue / Replogle support
+   50-69  plausible link, context uncertain
+   30-49  weak / indirect link
+   10-29  active reason to expect NO effect
     0-9   strongly contradicted"""
 
 
@@ -163,7 +153,10 @@ def build_de_prompt(pert: str, gene: str, *,
         _DE_HEADER.format(pert=pert, gene=gene),
         '',
         '## Cell context (BMDM)',
-        bmdm_block(),
+        'BMDMs are primary mouse macrophages, post-mitotic, uninfected, and rich in '
+        'myeloid / TLR-NFkB / IFN / ISR / ER-proteostasis programs. Cell-cycle, adaptive-immune, '
+        'neuronal, and epithelial programs are usually silent. Translation / amino-acid / ER stress '
+        'often induces ISR targets such as Atf4, Ddit3, Trib3, and Asns.',
         '',
         '## Query',
         f'  Perturbed gene (knocked down by CRISPRi): `{pert}`',
@@ -174,11 +167,8 @@ def build_de_prompt(pert: str, gene: str, *,
         '## Evidence cases from train (analogue + contrast)',
         f'These are {len(analog)} **analogue** cases (similar pert/gene pairs '
         f'where DE was observed) and {len(contrast)} **contrast** cases '
-        f'(similar pairs where DE was NOT observed). Pairs were retrieved by '
-        'STRING + Reactome similarity to the query (pert, target). Use them '
-        'to anchor mechanism reasoning; the mix of Yes/No outcomes is by '
-        'construction, so do not vote — reason about which side the present '
-        'case is closer to and why.',
+        f'(similar pairs where DE was NOT observed). Retrieved by STRING + Reactome similarity. '
+        'Use them to anchor mechanism reasoning; do not vote by label count.',
         ex_block,
         '',
         '## ' + _format_replogle_for_de(prior, pert, gene),

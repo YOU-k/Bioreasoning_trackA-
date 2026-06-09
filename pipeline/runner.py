@@ -13,7 +13,7 @@ from .replogle_prior import ReplogPrior
 from .prompt_builder import build_prompt, estimate_tokens
 from .output_parser import parse
 
-ROOT = Path('/data/yy_data/Bioreasoning_trackA')
+ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
 
 

@@ -1,5 +1,5 @@
 """Sanity tests for output_parser. Runs in <1s."""
-from pipeline.output_parser import parse
+from pipeline.output_parser import extract_p_de, extract_p_up_given_de, parse
 
 
 def test_clean_parse():
@@ -39,9 +39,19 @@ def test_clamps_oob_values():
     assert p.p_de == 1.0
 
 
+def test_extract_task_specific_scores():
+    p_de, s_de = extract_p_de("scratch\nP_DE: 85\nmore scratch")
+    p_up, s_up = extract_p_up_given_de("scratch\nP_up_given_DE: 95\nmore scratch")
+    assert s_de == 'ok'
+    assert s_up == 'ok'
+    assert abs(p_de - 0.85) < 1e-9
+    assert abs(p_up - 0.95) < 1e-9
+
+
 if __name__ == '__main__':
     test_clean_parse()
     test_fallback_on_partial()
     test_safe_defaults_on_failure()
     test_clamps_oob_values()
-    print('test_parser: 4/4 passed')
+    test_extract_task_specific_scores()
+    print('test_parser: 5/5 passed')

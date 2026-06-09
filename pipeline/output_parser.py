@@ -27,6 +27,26 @@ class ParsedOutput:
         return self.p_de * (1.0 - self.p_up_given_de)
 
 
+def _clamp_percent(value: int | str) -> float:
+    return max(0, min(100, int(value))) / 100.0
+
+
+def extract_p_de(raw_output: str, default_pde: float = 0.45) -> tuple[float, str]:
+    raw = str(raw_output or "")
+    m_de = _RE_PDE.search(raw)
+    if m_de:
+        return _clamp_percent(m_de.group(1)), 'ok'
+    return default_pde, 'failed'
+
+
+def extract_p_up_given_de(raw_output: str, default_pup: float = 0.5) -> tuple[float, str]:
+    raw = str(raw_output or "")
+    m_up = _RE_PUP.search(raw)
+    if m_up:
+        return _clamp_percent(m_up.group(1)), 'ok'
+    return default_pup, 'failed'
+
+
 def parse(raw_output: str, default_pde: float = 0.45, default_pup: float = 0.5) -> ParsedOutput:
     """Parse a single LLM output. If parsing fails, return prior-style defaults.
 
@@ -42,12 +62,12 @@ def parse(raw_output: str, default_pde: float = 0.45, default_pup: float = 0.5) 
     m_reason = _RE_REASONING_BLOCK.search(raw)
 
     if m_de and m_up:
-        pde = max(0, min(100, int(m_de.group(1)))) / 100.0
-        pup = max(0, min(100, int(m_up.group(1)))) / 100.0
+        pde = _clamp_percent(m_de.group(1))
+        pup = _clamp_percent(m_up.group(1))
         status = 'ok'
     elif m_de or m_up:
-        pde = (max(0, min(100, int(m_de.group(1)))) / 100.0) if m_de else default_pde
-        pup = (max(0, min(100, int(m_up.group(1)))) / 100.0) if m_up else default_pup
+        pde = _clamp_percent(m_de.group(1)) if m_de else default_pde
+        pup = _clamp_percent(m_up.group(1)) if m_up else default_pup
         status = 'fallback'
     else:
         pde = default_pde
