@@ -4,6 +4,60 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 (definitive) · attempt 09 · Rare-gene probe confirms: attempt 07 fails on test condition
+
+Followed up the eval60-leakage finding with a real test-mimic probe: 60
+train rows where the readout gene appears 2-4× in train (vs 4-10+ in
+eval60), stratified to match eval60's label distribution (23 up / 12 down
+/ 25 none, seed=789).
+
+**Result on probe60_rare_gene with attempt 07 single-call prompt**
+
+| Metric | eval60 (popular genes) | **probe60 (rare genes, test-like)** | Δ |
+|---|---|---|---|
+| DE-AUROC | 0.601 | **0.449** | -0.152 |
+| DIR-AUROC | 0.645 | **0.482** | -0.163 |
+| **Combined** | **0.623** | **0.466** | **-0.157** |
+
+Combined = **0.466 is below random (0.500)**. Attempt 07 actively
+mis-ranks these rows.
+
+Baselines on the same probe60 (for context):
+- Gene-only (cheats via same-gene rows): DE=0.117 DIR=0.623 Combined=0.370
+- Pert-only (cheats via same-pert rows): DE=0.143 DIR=0.766 Combined=0.455
+- Random: 0.500
+
+Attempt 07 ≈ pert-only baseline on this probe — but pert-only cheats with
+~19 same-pert neighbors per row that DON'T exist on test (test perts also
+unseen). So attempt 07's expected test Combined is likely **0.46-0.50**,
+not the 0.62 eval60 number suggested.
+
+**This confirms the user's intuition from 2026-06-09**: "不要关注这个小的
+gap了，这是之前误打误撞的，有可能是误差". The 0.014 Combined gaps between
+A04 / A05 / A07 on eval60 were 100% leakage band noise. None of the
+previous attempts have been shown to actually beat random on test
+conditions.
+
+**Failure mode**: P_DE collapses into [15, 25] and P_up into [45, 60] for
+the majority of rows. When the gene is obscure (Riken IDs, lncRNAs, no
+ortholog, no KG pathway), the prompt has no signal to anchor on and the
+LLM produces a default-band guess. This is exactly GPT discussion §1.5's
+"plausibility is not prediction" failure mode.
+
+**Strategic implication for Track A**: do NOT submit attempt 07. Expected
+LB ≈ 0.47-0.50. Need paradigm change before any GPT-OSS-120B spend.
+
+**Three honest next moves** (in plan.md):
+1. Cheap: verify A04 / A05 also fail on probe60 (rule out reviving them).
+2. Cheap: two-tier prediction — LLM on high-info rows, training prior on
+   low-info rows. The 0.5 floor on Tier B can lift Combined from 0.466.
+3. Bigger: pivot to GPT discussion's CORE-style same-readout contrastive
+   evidence + signed pathway features.
+
+See `attempts/09_rare_gene_probe/result.md`.
+
+---
+
 ## 2026-06-09 (final) · attempt 08 · Baseline audit — eval60 was leakage-contaminated
 
 Ran gene-only, pert-only, and gene+pert baselines on the same 60-row probe

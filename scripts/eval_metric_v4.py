@@ -36,6 +36,27 @@ def pick_random(n: int, seed: int):
     return rows[:n]
 
 
+def pick_rare_gene(n: int, seed: int, label_targets=(23, 12, 25)):
+    """Sample n train rows where the readout gene appears 2-4x in train
+    (test-mimic on the gene axis). Stratify labels (up, down, none) to
+    `label_targets` for apples-to-apples vs eval60 (default 23/12/25)."""
+    from collections import Counter
+    rows = list(csv.DictReader(open(ROOT / 'data/train.csv')))
+    gene_count = Counter(r['gene'] for r in rows)
+    candidates = [r for r in rows if 2 <= gene_count[r['gene']] <= 4]
+    by_label = {'up': [], 'down': [], 'none': []}
+    for r in candidates:
+        by_label[r['label']].append(r)
+    rng = random.Random(seed)
+    for lbl in by_label:
+        rng.shuffle(by_label[lbl])
+    n_up, n_down, n_none = label_targets
+    picks = (by_label['up'][:n_up] + by_label['down'][:n_down]
+             + by_label['none'][:n_none])
+    rng.shuffle(picks)
+    return picks
+
+
 async def run_one(sem, client, row, prompt, max_tokens, out_dir):
     rid = row['id']
     out_path = out_dir / 'single' / f'{rid}.json'
@@ -89,7 +110,7 @@ def auroc(y, s):
 
 
 async def main_async(args):
-    out_dir = ROOT / f'attempts/{args.out_attempt}/outputs/eval60'
+    out_dir = ROOT / f'attempts/{args.out_attempt}/outputs/{args.probe_subdir}'
     out_dir.mkdir(parents=True, exist_ok=True)
     client = openai.AsyncOpenAI(
         api_key=load_key(), base_url='https://api.deepseek.com/v1', timeout=600,
@@ -101,8 +122,15 @@ async def main_async(args):
     retriever = ExampleRetriever(kg=kg)
     desc = gene_desc_default()
 
-    picks = pick_random(args.n, args.seed)
-    print(f'sampled {len(picks)} random train rows (seed={args.seed})')
+    if args.probe == 'random':
+        picks = pick_random(args.n, args.seed)
+        print(f'sampled {len(picks)} random train rows (seed={args.seed})')
+    elif args.probe == 'rare_gene':
+        picks = pick_rare_gene(args.n, args.seed)
+        print(f'sampled {len(picks)} rare-gene train rows '
+              f'(seed={args.seed}, gene appears 2-4x in train)')
+    else:
+        raise SystemExit(f'unknown probe: {args.probe!r}')
     print(f'  label dist: '
           f'up={sum(1 for r in picks if r["label"]=="up")}  '
           f'down={sum(1 for r in picks if r["label"]=="down")}  '
@@ -191,6 +219,10 @@ def parse_args():
     ap.add_argument('--max-tokens', type=int, default=6000)
     ap.add_argument('--out-attempt', type=str, default='07_no_anchors',
                     help='attempt folder under attempts/ to write outputs to')
+    ap.add_argument('--probe', choices=['random', 'rare_gene'], default='random',
+                    help='which sample to use')
+    ap.add_argument('--probe-subdir', type=str, default='eval60',
+                    help='subfolder under outputs/ for this probe (e.g. eval60, probe60)')
     return ap.parse_args()
 
 

@@ -1,0 +1,22 @@
+{
+  "metrics": [
+    {
+      "name": "Gene-only baseline",
+      "DE": 0.117,
+      "DIR": 0.623,
+      "Combined": 0.37
+    },
+    {
+      "name": "Pert-only baseline",
+      "DE": 0.143,
+      "DIR": 0.766,
+      "Combined": 0.455
+    },
+    {
+      "name": "Attempt 07 (n=60)",
+      "DE": 0.449,
+      "DIR": 0.482,
+      "Combined": 0.466
+    }
+  ]
+}
