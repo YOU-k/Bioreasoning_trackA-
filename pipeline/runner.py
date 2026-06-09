@@ -7,11 +7,34 @@ This module does NOT call any LLM directly — it only builds prompts and
 assembles outputs. Inference is left to the user's GPU/API call.
 """
 from __future__ import annotations
-import csv, json, os, time
+import csv, json, math, os, time
 from pathlib import Path
 from .replogle_prior import ReplogPrior
 from .prompt_builder import build_prompt, estimate_tokens
 from .output_parser import parse
+
+
+def _logit(p: float, eps: float = 1e-6) -> float:
+    p = min(1 - eps, max(eps, p))
+    return math.log(p / (1 - p))
+
+
+def _sigmoid(x: float) -> float:
+    return 1.0 / (1.0 + math.exp(-x))
+
+
+def fuse_q_r_logit(q_per_seed: list[float], r_per_seed: list[float]
+                   ) -> tuple[float, float, float, float]:
+    """3-seed fusion via logit-averaging of q=P(DE) and r=P(up|DE) separately.
+
+    Returns (q_final, r_final, p_up_final, p_down_final).
+
+    Rationale (see discussion/next_paradigm_gpt.md §3): averaging p_up / p_down
+    directly lets a single extreme seed pollute BOTH DE and DIR; fusing in
+    logit space on q and r independently keeps the two AUROCs decoupled."""
+    q = _sigmoid(sum(_logit(v) for v in q_per_seed) / len(q_per_seed))
+    r = _sigmoid(sum(_logit(v) for v in r_per_seed) / len(r_per_seed))
+    return q, r, q * r, q * (1 - r)
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
@@ -89,10 +112,11 @@ def assemble_submission(outputs_dir: str | Path,
                 raw = txt_path.read_text() if txt_path.exists() else ""
                 p = parse(raw)
                 seed_results[seed] = p
-            # Per Track A spec: final prediction = mean of the per-seed
-            # prediction_up / prediction_down columns directly.
-            final_up = sum(seed_results[s].p_up for s in seeds) / len(seeds)
-            final_dn = sum(seed_results[s].p_down for s in seeds) / len(seeds)
+            # 3-seed fusion: logit-average q=P(DE) and r=P(up|DE) separately,
+            # then p_up=q*r, p_down=q*(1-r). See fuse_q_r_logit docstring.
+            q_seeds = [seed_results[s].p_de for s in seeds]
+            r_seeds = [seed_results[s].p_up_given_de for s in seeds]
+            _q, _r, final_up, final_dn = fuse_q_r_logit(q_seeds, r_seeds)
             # tokens (sum across seeds)
             tok_json = outputs_dir / 'tokens' / f"{rid}.json"
             if tok_json.exists():

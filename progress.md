@@ -4,6 +4,51 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 (later) · attempt 06 · Single-call Track-A prompt — FAIL
+
+Collapsed attempt-05's DE + DIR pair into a Track-A-compliant single-call
+prompt that emits both `P_DE` and `P_up_given_DE` in one response. Added two
+"free levers" suggested by `discussion/next_paradigm_gpt.md`: direction prior
+(default P_up ≈ 62 from train up:down ≈ 2.2:1) and an anti-storytelling
+guard ("lean P_DE toward 15-25 when evidence is weak"). Both backfired.
+
+**Result on the same 60 train rows (seed=123)**
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| Attempt 03 (one prompt) | 0.654 | 0.451 | 0.552 |
+| Attempt 04 (two prompts, random labels) | 0.601 | 0.679 | **0.640** |
+| Attempt 05 (two prompts, real labels) | 0.610 | 0.665 | 0.637 |
+| **Attempt 06 (single call + prescriptive anchors)** | **0.559** | **0.611** | **0.585** |
+
+**Failure mode**: prescriptive numerical anchors became escape hatches.
+- 26/60 rows (43%) returned exactly P_up = 62 — the printed default value —
+  killing DIR-AUROC via AUROC ties.
+- True DE and true `none` both piled into P_DE ∈ {15, 18, 20, 25} under
+  the "lean toward 15-25" rule — relative ranking between them collapsed.
+- 60/60 parsed cleanly; pipeline is fine, prompt is wrong.
+
+**What survives**
+- Single-call architecture is Track-A compliant and the parser handles two
+  integers cleanly. The shape of the change is right.
+- High-P_DE rows (≥70) were 6/7 true DE → the model can identify strong
+  signal; it was the anchor that made mid-strength signal collapse.
+- `pipeline/runner.py:fuse_q_r_logit` (3-seed logit-average of q and r
+  separately) is prompt-independent and stays.
+
+**Lesson**: encode priors as runner-side calibration or as qualitative
+prompt wording, **never as a printed integer** the LLM can copy.
+
+**Next** (attempt 07): same single-call architecture, strip R2 + R4
+numerical anchors; either revert to attempt 04/05's tier-anchor wording
+(90-100 / 70-89 / …) where the tiers describe *what each band means* but
+don't tell the model where to default, or push the direction prior into
+post-hoc shrinkage in `runner.py`. Validation gate same as attempt 06.
+
+See `attempts/06_track_a_single_call/result.md`.
+
+---
+
 ## 2026-06-09 · infra · Track-A compliance note + local GPT-OSS batch harness
 
 Validated the local GPT-OSS path for attempt-05-style prompts and recorded the

@@ -27,13 +27,30 @@ them into a single-call prompt that emits both `P_DE` and `P_up_given_DE`.
 
 ## Pending — in order
 
-### P1 · Collapse attempt-05 logic into one Track-A-compliant prompt
-Port the successful pieces of attempt 05 — BMDM context, gene summaries,
-analog+contrast retrieval, Replogle DE scalar, direction logic — back into a
-single prompt that produces BOTH `P_DE` and `P_up_given_DE` in one output.
+### P1 · Strip prescriptive anchors from the single-call prompt (attempt 07)
+Attempt 06 confirmed the single-call architecture is viable (60/60 parse,
+4k token budget fine) but its two prescriptive numerical anchors backfired —
+43% of rows returned the printed default P_up=62, and "lean P_DE toward
+15-25" compressed both true DE and true `none` into the same low bucket.
+Combined dropped 0.637 → 0.585. See `attempts/06_track_a_single_call/result.md`.
 
-- Deliverable: one-call prompt builder + local GPT-OSS smoke test showing both fields extracted.
-- Decision point: only after this is green should we consider a full Track-A run.
+Attempt 07 plan:
+- Keep `pipeline/prompt_builder_v3.py` single-call architecture and the
+  `runner.fuse_q_r_logit` 3-seed fusion (both prompt-independent and right).
+- Restore attempt 04/05's **tier-anchor language** (90-100 / 70-89 / …)
+  where each band describes *what the evidence looks like at that tier*
+  without telling the model where to default to. The model self-locates
+  on the ladder; the prior never appears as a literal integer.
+- Push the train direction prior (up:down ≈ 2.2:1) into **runner-side
+  shrinkage**: pull r toward 0.62 when the LLM emits 0.45 < r < 0.55,
+  otherwise leave it alone. This is a 5-line change in `runner.py`.
+- Validation gate same as attempt 06.
+
+### P2 · (was P2) Submission format dry-run (before any real GPT spend)
+- Pull `sample_submission_track_a.csv` from Kaggle Data tab
+- Diff column names / types against `pipeline/runner.assemble_submission()`
+- Test the zip on a one-row submission to confirm Kaggle accepts the format
+- Cost of skipping: 0-score submission, burns a daily quota slot
 
 ### P2 · Submission format dry-run (before any real GPT spend)
 - Pull `sample_submission_track_a.csv` from Kaggle Data tab
