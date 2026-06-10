@@ -36,6 +36,32 @@ def fuse_q_r_logit(q_per_seed: list[float], r_per_seed: list[float]
     r = _sigmoid(sum(_logit(v) for v in r_per_seed) / len(r_per_seed))
     return q, r, q * r, q * (1 - r)
 
+
+def hybrid_direction(r_llm: float, pert: str, gene: str,
+                     replogle_prior, alpha: float = 0.4,
+                     non_full_default: float = 0.62) -> tuple[float, str]:
+    """Replace the LLM's r=P(up|DE) with a hybrid that anchors on Replogle.
+
+    Empirically (attempts 09 + 11), on test-condition data (probe60_rare_gene)
+    where the readout gene is unseen in train, the LLM's direction call is
+    near-random (DIR-AUROC ≈ 0.48). Replogle's direct ortholog logFC sign is
+    a much stronger direction signal (DIR-AUROC ≈ 0.57 alone). Blending
+    captures the LLM's contribution while anchoring on Replogle.
+
+    For rows without a Replogle full-tier match, the LLM's r is also
+    near-random; we fall back to the train direction prior (up:down ≈ 2.2:1).
+
+    Returns (r_hybrid, source_tag) where source_tag is 'replogle_blend' or
+    'prior_fallback' for telemetry / per-row inspection.
+    """
+    tier = replogle_prior.tier(pert, gene)
+    if tier == 'full':
+        lf = replogle_prior.get_pair_logfc(pert, gene)
+        r_replogle = _sigmoid(3.0 * lf)
+        r_hybrid = alpha * r_llm + (1 - alpha) * r_replogle
+        return r_hybrid, 'replogle_blend'
+    return non_full_default, 'prior_fallback'
+
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
 
@@ -89,7 +115,9 @@ def build_all_prompts(test_csv: str | Path = DATA/'test.csv',
 def assemble_submission(outputs_dir: str | Path,
                         seeds: tuple = (42, 43, 44),
                         out_path: str | Path = ROOT/'submission.csv',
-                        model_name: str = 'gpt-oss-120b'):
+                        model_name: str = 'gpt-oss-120b',
+                        apply_hybrid_direction: bool = True,
+                        hybrid_alpha: float = 0.4):
     """Read per-seed LLM outputs from {outputs_dir}/{seed}/{id}.txt and
     assemble submission.csv with required Track A columns.
 
@@ -116,7 +144,22 @@ def assemble_submission(outputs_dir: str | Path,
             # then p_up=q*r, p_down=q*(1-r). See fuse_q_r_logit docstring.
             q_seeds = [seed_results[s].p_de for s in seeds]
             r_seeds = [seed_results[s].p_up_given_de for s in seeds]
-            _q, _r, final_up, final_dn = fuse_q_r_logit(q_seeds, r_seeds)
+            q_final, r_llm_final, _pup0, _pdn0 = fuse_q_r_logit(q_seeds, r_seeds)
+
+            # Hybrid direction (probe60 finding: LLM r is near-random on
+            # test-condition data; Replogle direct sign is stronger).
+            if apply_hybrid_direction:
+                from .replogle_prior import ReplogPrior
+                # Lazy-init prior; cache via function attr to avoid reload per row
+                if not hasattr(assemble_submission, '_prior'):
+                    assemble_submission._prior = ReplogPrior()
+                r_final, _src = hybrid_direction(
+                    r_llm_final, row['pert'], row['gene'],
+                    assemble_submission._prior, alpha=hybrid_alpha)
+            else:
+                r_final = r_llm_final
+            final_up = q_final * r_final
+            final_dn = q_final * (1 - r_final)
             # tokens (sum across seeds)
             tok_json = outputs_dir / 'tokens' / f"{rid}.json"
             if tok_json.exists():

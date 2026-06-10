@@ -4,6 +4,70 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-09 (recovery) · attempt 11 · Hagai mouse-BMDM LPS prior + runner-side Replogle DIR blend
+
+Combined the two missing pieces identified by attempts 08/09/10:
+1. The prompt only surfaced **human cross-species** direction (Replogle), so the
+   LLM kept overriding it with weak mechanism guesses.
+2. The runner did not exploit the strongest direction signal we have on full-
+   tier rows (Replogle direct ortholog logFC).
+
+**Added a new signal source** — `/data2/lanxiang/data/Task3_data/Hagai.h5ad`
+(mouse BMDM stimulated with LPS for 6h vs ctrl, 15,053 mouse cells). Built
+per-gene logFC + Bonferroni p_adj lookup, surfaced in the prompt as a
+mouse-native primary prior.
+
+**Added runner-side hybrid direction**:
+```
+r_full   = 0.4 * r_LLM + 0.6 * sigmoid(3 * Replogle.logfc)   # 55% of test rows
+r_other  = 0.62                                              # train prior up:down ≈ 2.2:1
+```
+
+**Result on the same 60 rare-gene probe (seed=789)**:
+
+| Predictor | DE-AUROC | DIR-AUROC | Combined |
+|---|---|---|---|
+| A07 (no Hagai, no blend) | 0.449 | 0.482 | 0.466 |
+| Pure Hagai+Replogle composite (no LLM) | 0.531 | 0.569 | 0.550 |
+| A11 prompt only (no blend) | 0.599 | 0.480 | 0.539 |
+| **A11 + hybrid runner** | **0.599** | **0.627** | **0.613** |
+
+**+0.147 Combined over the previous Track-A compliant best.** Single-call
+architecture preserved, Track-A compliant (3 calls per question).
+
+Hagai in the prompt fixes DE (0.449 → 0.599); runner-side Replogle blend
+fixes DIR (0.480 → 0.627). Both levers necessary; either alone underperforms.
+
+**Sanity checks**:
+- Hash-jitter on the 0.62 prior tested across 10 salts: mean Combined 0.616
+  ± 0.018. Marginal lift over the constant 0.62 (+0.003). Not robust; not
+  enabled.
+- The same hybrid recipe applied to A07 eval60 outputs gives Combined 0.516,
+  WORSE than pure A07's 0.623 on eval60. Confirms hybrid is a
+  **test-condition lever** — eval60 had gene-prior leakage the LLM was riding,
+  which the hybrid replaces; test data has no such leakage, so the hybrid
+  is the right move.
+
+**Expected Track-A LB**: probe60 signal-coverage distribution matches
+test almost exactly (T0/T1/T3 share = 55/35/8% vs 54/37/9%). Expected test
+Combined **≈ 0.55-0.61**, within 0.02-0.07 of the top-4 public LB band
+(0.628-0.650) on a **Track-A-compliant single-call architecture**.
+
+**Files added/changed**:
+- `data/hagai_lps_prior.json` (6,619 mouse genes, built by `scripts/build_hagai_prior.py`)
+- `pipeline/hagai_prior.py` (new loader module)
+- `pipeline/prompt_builder_v3.py` (Hagai block added, R3/R4 rules rewritten)
+- `pipeline/runner.py` (`hybrid_direction()` + integration in `assemble_submission`)
+- `scripts/build_hagai_prior.py`
+- `scripts/ablate_replogle_blend.py`
+- `attempts/11_hagai_in_prompt/{README,result}.md` + outputs/
+
+**Recommendation**: ship `pipeline/prompt_builder_v3.py` + `runner.assemble_submission()` (with `apply_hybrid_direction=True`, default) as the Track-A submission pipeline.
+
+See `attempts/11_hagai_in_prompt/result.md`.
+
+---
+
 ## 2026-06-09 (definitive) · attempt 09 · Rare-gene probe confirms: attempt 07 fails on test condition
 
 Followed up the eval60-leakage finding with a real test-mimic probe: 60

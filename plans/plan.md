@@ -2,16 +2,17 @@
 
 Forward-looking only. Historical decisions live in `progress.md`. Each entry is one candidate attempt with rationale, expected impact, and concrete deliverables.
 
-## Strategic frame after the 2026-06-09 probe60 result
+## Strategic frame after attempt 11 (Hagai + hybrid runner)
 
-A09 (rare-gene probe) showed attempt 07 scores Combined = **0.466 on
-test-condition data, below random (0.5)**. All previous eval60 numbers
-(0.55-0.64 range across A03-A07) were inside the leakage band — nothing
-has been shown to actually beat random on the data structure that
-matters for the test set.
+A11 = first Track-A-compliant method to score above 0.55 on a test-mimic
+probe. Combined 0.613 on probe60_rare_gene with single-call LLM +
+runner-side Replogle direction blend.
 
-This is the honest baseline. Everything below assumes we are starting
-from "no working method yet", not "ship attempt 07 with small tuning".
+Expected test Combined: **0.55-0.61** (probe60 signal-coverage distribution
+matches test almost exactly: T0/T1/T3 share = 55/35/8% vs 54/37/9% on test).
+
+Top-4 public LB band is 0.628-0.650. We are within 0.02-0.07 of LB on
+a compliant architecture. Ship.
 
 | Component | Status under this honesty correction |
 |---|---|
@@ -24,81 +25,52 @@ from "no working method yet", not "ship attempt 07 with small tuning".
 
 ## Pending — in order
 
-### P1 · Probe60 cross-check on A04 / A05 (cheap, ~$0.30, 5 min)
-Re-run A04 (two-prompt random labels) and A05 (two-prompt real labels)
-on the same probe60 sample (seed=789). If either is materially better
-than A07's 0.466, revive that architecture and prune accordingly.
+### P1 · Track-A submission with A11 pipeline (user-owned on LLM server)
 
-- Deliverable: `attempts/09_rare_gene_probe/result.md` updated with the
-  A04 / A05 numbers.
-- Decision point: if all three score ≈ 0.5, the architecture is not the
-  bottleneck; the data signal is.
+A11 (single-call prompt with Hagai + Replogle, hybrid runner) is the
+shippable Track-A method. Probe60 Combined = 0.613. Expected test 0.55-0.61.
 
-### P2 · Two-tier prediction (cheap, ~30 min code, no API)
-Build a runner-side decision that splits test rows into:
+- Inputs:
+  - `pipeline/prompt_builder_v3.py:build_track_a_prompt` (Hagai block on)
+  - `pipeline/runner.assemble_submission(..., apply_hybrid_direction=True)`
+- Run: 1,813 test rows × 3 seeds (42 / 43 / 44) × 1 call = 5,439 GPT-OSS-120B calls.
+- Aggregate via `pipeline/runner.assemble_submission()` (logit-fuse seeds, hybrid direction).
+- Package per Track-A spec, submit.
 
-- **Tier A (high-info)**: gene has a Replogle ortholog OR has KG pathway
-  neighbors OR has a NCBI/MGI description longer than N chars. Use
-  attempt-07 LLM predictions for these rows.
-- **Tier B (low-info)**: everything else (mostly Riken IDs and lncRNAs).
-  Output **the training prior** with tie-breaking jitter:
-  - `P_DE = 0.45` (train base rate of `none` ≈ 0.55, so `1 - 0.55 = 0.45`)
-  - `P_up_given_DE = 0.62` (train up:down ≈ 2.2:1)
-  - Add small deterministic jitter from `hash(row_id)` so AUROC isn't
-    crushed by ties.
+### P2 · Submission format dry-run (do BEFORE P1)
+- Pull `sample_submission_track_a.csv` from Kaggle Data tab.
+- Diff column names / types against `pipeline/runner.assemble_submission()`.
+- Test the zip on a one-row submission to confirm Kaggle accepts the format.
+- Cost of skipping: 0-score submission, burns a daily quota slot.
 
-Test this hybrid on probe60 + eval60. Expected: Tier B floors AUROC at
-≈ 0.5 instead of 0.45, lifting overall Combined from 0.466 toward 0.5+.
+### P3 · Additional Task3_data signal sources (~28% test rows still on prior)
 
-- Deliverable: `pipeline/runner.py` adds `predict_hybrid()` plus a config
-  describing the high-info gate.
-- Decision point: if probe60 lifts to ≥ 0.55, this is a viable
-  Track-A submission floor.
+A11 hybrid leaves 28% of test rows (no Replogle full + no Hagai) on the
+prior 0.62 floor. Look at:
+- `Tahoe100_sub10.h5ad` (human drug perturb-seq, VCWorld dataset)
+- `Kang.h5ad` (human PBMC IFN response)
+- `Perturb_KHP_sub10.h5ad` / `Perturb_cmo_V1_sub10.h5ad` (Perturb-seq variants)
 
-### P3 · Detect what signal IS available on test (1-2 hr analysis, no API)
-Audit how many test rows have:
+If any provides usable per-pert or per-gene direction priors, surface in
+the prompt (like Hagai is) or use in the runner blend. Each new signal
+source covering the remaining 28% gap could lift Combined another 0.02-0.05.
 
-- Replogle ortholog match → direct logFC available
-- KG pathway neighbors for both pert and gene
-- An NCBI/MGI description longer than the symbol itself
+### P4 · Hagai pert-side signal (cheap follow-up)
 
-This tells us the proportion of test rows where a method has any chance
-of beating random. Sets the realistic ceiling for any LLM-based approach.
+Currently Hagai is used only for the readout gene's response to LPS. Hagai
+also has logFC for the PERT itself, which tells us whether the pert is an
+LPS-responsive gene. This is a feature we don't use yet: KD of an
+LPS-responsive gene might selectively dampen inflammatory targets.
 
-- Deliverable: `attempts/10_test_signal_audit/result.md` with per-feature
-  coverage on the 1,813 test rows.
+- Add Hagai pert |logFC| as an input feature to a per-row "is this pert
+  inflammatory-relevant" check.
+- Expected lift: small (~0.01).
 
-### P4 · CORE-style same-readout contrastive evidence (research lift)
-Per `discussion/next_paradigm_gpt.md` §A: for each (pert, gene), build
-an evidence packet with:
+### P5 · CORE-style same-readout contrastive evidence (research lift)
 
-- positive supports: similar perts in OTHER cell-line perturb-seq datasets
-  that changed the same readout (or its ortholog)
-- negative supports: similar perts that did NOT change the same readout
-- signed regulatory paths from a KG with edge signs (Reactome / OmniPath)
-
-This is the GPT discussion's main bet. Requires external data
-(OmniPath signed, public BMDM perturb-seq, e.g. Hagai 2018 / ImmGen-pert)
-and a real engineering lift.
-
-- Deliverable: new `pipeline/evidence_packet.py` + a new prompt builder
-  that consumes it.
-- Decision point: only worth doing if P2/P3 confirm there's no cheap
-  win on top of attempt 07.
-
-### P5 · Submission format dry-run (independent of P1-P4)
-- Pull `sample_submission_track_a.csv` from Kaggle Data tab
-- Diff column names / types against `pipeline/runner.assemble_submission()`
-- Test the zip on a one-row submission to confirm Kaggle accepts the format
-- Cost of skipping: 0-score submission, burns a daily quota slot
-
-### P6 · Real Track-A submission (post P1-P3 and a working method)
-ONLY when probe60 Combined ≥ 0.55 with whatever method emerges from
-P1-P4. Burning GPT-OSS-120B compute on a probe-overfit prompt is not
-the right move.
-
-- 1,813 test rows × 3 seeds × 1 call (compliant); aggregate via
-  `pipeline/runner.assemble_submission()`.
+If the LB number from P1 lands below ~0.55, pivot to GPT discussion §A:
+restructure retrieval to surface same-readout pos/neg pert pairs from
+external perturb-seq with signed pathway features. Major engineering lift.
 
 ## Deferred / closed
 

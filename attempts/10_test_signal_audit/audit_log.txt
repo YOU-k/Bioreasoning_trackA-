@@ -1,0 +1,28 @@
+Auditing 1813 test rows
+
+=== Per-source coverage ===
+  replogle_pert        1143/1813  ( 63.0%)
+  replogle_full         994/1813  ( 54.8%)
+  kg_pert              1776/1813  ( 98.0%)
+  kg_gene              1469/1813  ( 81.0%)
+  desc_pert            1813/1813  (100.0%)
+  desc_gene            1606/1813  ( 88.6%)
+
+=== Composite info tiers ===
+  Tier 0 (rich: replogle-full + KG/desc both sides)          984/1813  ( 54.3%)
+  Tier 1 (mid: kg/desc both sides, no replogle direct)       661/1813  ( 36.5%)
+  Tier 3 (one-sided)                                         168/1813  (  9.3%)
+
+=== Obscure-gene flags ===
+  gene ends in "Rik" (Riken ID):  44/1813  (2.4%)
+  gene starts "Gm<digits>" (predicted):  60/1813  (3.3%)
+
+wrote /data/yy_data/Bioreasoning_trackA/attempts/10_test_signal_audit/coverage.json
+
+=== Realistic ceiling estimate ===
+  Rich     ( 984, est AUROC 0.65 on this slice)
+  Mid      ( 661, est 0.58)
+  Thin     (   0, est 0.52)
+  No signl ( 168, est 0.50)
+  Weighted estimate of realistic Combined ceiling: ~0.611
+  (These per-tier numbers are guesses — see actual probe60 results.)

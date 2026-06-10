@@ -19,7 +19,7 @@ from pipeline.gene_desc import default as gene_desc_default
 from pipeline.output_parser import parse
 
 KEY_FILE = Path('/data3/yy/key.env')
-OUT_DIR = ROOT / 'attempts/05_paper_faithful/outputs/eval60'
+# OUT_DIR is constructed from --out-attempt / --probe-subdir in main_async
 
 
 def load_key() -> str:
@@ -36,9 +36,29 @@ def pick_random(n: int, seed: int):
     return rows[:n]
 
 
-async def run_one(sem, client, task_kind, row, prompt, max_tokens):
+def pick_rare_gene(n: int, seed: int, label_targets=(23, 12, 25)):
+    """Same as scripts.eval_metric_v4.pick_rare_gene - duplicated locally
+    so v3 doesn't depend on v4 import path."""
+    from collections import Counter
+    rows = list(csv.DictReader(open(ROOT / 'data/train.csv')))
+    gene_count = Counter(r['gene'] for r in rows)
+    candidates = [r for r in rows if 2 <= gene_count[r['gene']] <= 4]
+    by_label = {'up': [], 'down': [], 'none': []}
+    for r in candidates:
+        by_label[r['label']].append(r)
+    rng = random.Random(seed)
+    for lbl in by_label:
+        rng.shuffle(by_label[lbl])
+    n_up, n_down, n_none = label_targets
+    picks = (by_label['up'][:n_up] + by_label['down'][:n_down]
+             + by_label['none'][:n_none])
+    rng.shuffle(picks)
+    return picks
+
+
+async def run_one(sem, client, task_kind, row, prompt, max_tokens, out_dir):
     rid = row['id']
-    out_path = OUT_DIR / task_kind / f'{rid}.json'
+    out_path = out_dir / task_kind / f'{rid}.json'
     out_path.parent.mkdir(parents=True, exist_ok=True)
     if out_path.exists():
         return json.loads(out_path.read_text())
@@ -90,7 +110,9 @@ def auroc(y, s):
 
 
 async def main_async(args):
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_dir = ROOT / f'attempts/{args.out_attempt}/outputs/{args.probe_subdir}'
+    out_dir.mkdir(parents=True, exist_ok=True)
+    print(f'output dir: {out_dir}')
     client = openai.AsyncOpenAI(
         api_key=load_key(), base_url='https://api.deepseek.com/v1', timeout=600,
     )
@@ -100,8 +122,15 @@ async def main_async(args):
     retriever = ExampleRetriever(kg=kg)
     desc = gene_desc_default()
 
-    picks = pick_random(args.n, args.seed)
-    print(f'sampled {len(picks)} random train rows (seed={args.seed})')
+    if args.probe == 'random':
+        picks = pick_random(args.n, args.seed)
+        print(f'sampled {len(picks)} random train rows (seed={args.seed})')
+    elif args.probe == 'rare_gene':
+        picks = pick_rare_gene(args.n, args.seed)
+        print(f'sampled {len(picks)} rare-gene train rows '
+              f'(seed={args.seed}, gene appears 2-4x in train)')
+    else:
+        raise SystemExit(f'unknown probe: {args.probe!r}')
     print(f'  label dist: '
           f'up={sum(1 for r in picks if r["label"]=="up")}  '
           f'down={sum(1 for r in picks if r["label"]=="down")}  '
@@ -124,7 +153,7 @@ async def main_async(args):
           f'max_tokens={args.max_tokens})')
 
     sem = asyncio.Semaphore(args.concurrency)
-    futures = [run_one(sem, client, kind, row, prompt, args.max_tokens)
+    futures = [run_one(sem, client, kind, row, prompt, args.max_tokens, out_dir)
                for kind, row, prompt in tasks]
 
     t0 = time.time()
@@ -199,6 +228,9 @@ def parse_args():
     ap.add_argument('--seed', type=int, default=123)
     ap.add_argument('--concurrency', type=int, default=8)
     ap.add_argument('--max-tokens', type=int, default=6000)
+    ap.add_argument('--out-attempt', type=str, default='05_paper_faithful')
+    ap.add_argument('--probe', choices=['random', 'rare_gene'], default='random')
+    ap.add_argument('--probe-subdir', type=str, default='eval60')
     return ap.parse_args()
 
 
