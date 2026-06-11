@@ -8,7 +8,20 @@ def test_single_call_prompt_emits_both_keys():
     p = build_track_a_prompt('Aars', 'Atf4')
     assert 'P_DE:' in p
     assert 'P_up_given_DE:' in p
+    # BMDM appears in the task header even without the BMDM context paragraph
     assert 'BMDM' in p and 'CRISPRi' in p
+
+
+def test_bmdm_context_paragraph_off_by_default():
+    """A12 finding: dropping the 723-token BMDM context paragraph lifts
+    probe60 Combined by ~0.012-0.053. Ship default = off."""
+    p_off = build_track_a_prompt('Aars', 'Atf4', include_bmdm_context=False)
+    p_on  = build_track_a_prompt('Aars', 'Atf4', include_bmdm_context=True)
+    # Default should be off
+    p_default = build_track_a_prompt('Aars', 'Atf4')
+    assert len(p_default) == len(p_off)
+    # Context paragraph is hundreds of tokens longer when included
+    assert len(p_on) > len(p_off) + 1500
 
 
 def test_single_call_prompt_has_guards_and_tier_ladders():
@@ -82,9 +95,10 @@ def test_logit_fusion_consistency_with_q_r_definition():
 
 if __name__ == '__main__':
     test_single_call_prompt_emits_both_keys()
+    test_bmdm_context_paragraph_off_by_default()
     test_single_call_prompt_has_guards_and_tier_ladders()
     test_single_call_prompt_token_budget()
     test_parser_extracts_both_from_combined_output()
     test_logit_fusion_extreme_seed_does_not_dominate_other_head()
     test_logit_fusion_consistency_with_q_r_definition()
-    print('test_prompt_v3: 6/6 passed')
+    print('test_prompt_v3: 7/7 passed')

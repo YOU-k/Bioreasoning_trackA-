@@ -169,7 +169,8 @@ def build_track_a_prompt(pert: str, gene: str, *,
                          kg: Optional[KGRetrieval] = None,
                          k_a: int = 5, k_c: int = 5,
                          exclude_query: bool = False,
-                         seed: int = 42) -> str:
+                         seed: int = 42,
+                         include_bmdm_context: bool = False) -> str:
     """Build the single-call Track-A prompt for (pert, gene)."""
     prior = prior or ReplogPrior()
     hagai = hagai or hagai_default()
@@ -189,12 +190,10 @@ def build_track_a_prompt(pert: str, gene: str, *,
     pert_paths = kg.get_pathways(pert, top_n=3)
     gene_paths = kg.get_pathways(gene, top_n=3)
 
-    body = [
-        _HEADER.format(pert=pert, gene=gene),
-        '',
-        '## Cell context (BMDM)',
-        bmdm_block(),
-        '',
+    body = [_HEADER.format(pert=pert, gene=gene), '']
+    if include_bmdm_context:
+        body += ['## Cell context (BMDM)', bmdm_block(), '']
+    body += [
         '## Query',
         f'  Perturbed gene (CRISPRi KD): `{pert}`',
         f'    Description: {desc.get(pert, pathway_fallback=pert_paths)}',

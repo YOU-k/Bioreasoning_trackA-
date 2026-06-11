@@ -4,6 +4,55 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 · attempt 12 · Drop the hand-written BMDM context paragraph
+
+User audited the A11 prompt and flagged that much of the ~2630 tokens is
+hand-written boilerplate, not query-specific. Two candidates for ablation:
+
+- **A**: Hagai prompt block printed "→ UP (strong) under LPS" — but R3
+  already says direction does NOT transfer to CRISPRi. Strip direction
+  wording, show magnitude only?
+- **C**: 723-token `## Cell context (BMDM)` paragraph in
+  `pipeline/bmdm_context.py` is hand-written, identical every row. Does
+  it actually help?
+
+2×2 ablation on probe60_rare_gene (seed=789):
+
+| Variant | DE | DIR (LLM-only) | Combined (LLM-only) | Combined (+ hybrid) |
+|---|---|---|---|---|
+| A11 baseline (BMDM yes, dir wording yes) | 0.599 | 0.480 | 0.539 | 0.613 |
+| A only (BMDM yes, magnitude wording) | 0.522 | 0.507 | 0.515 | 0.574 |
+| **C only (BMDM no, dir wording)** ✅ | **0.644** | **0.540** | **0.592** | **0.625** |
+| A + C (BMDM no, magnitude wording) | 0.618 | 0.520 | 0.569 | 0.620 |
+
+**Decomposition** (effects are roughly additive):
+- A (Hagai magnitude wording): -0.022 to -0.039 Combined. The LLM was
+  using the direction text as a DE feature; stripping it dropped
+  DE-AUROC 0.599 → 0.522 (-0.077). Net negative.
+- C (drop BMDM context): +0.012 to +0.053 Combined. 723 fewer prompt
+  tokens lifts both DE and DIR on the LLM-alone surface.
+
+**Ship C-only**: keep Hagai direction wording (R3 caveat already says don't
+copy direction); drop the BMDM context paragraph. New numbers:
+
+| Metric | A11 baseline | **A11 + C-only (SHIP)** | Δ |
+|---|---|---|---|
+| LLM-only Combined | 0.539 | **0.592** | +0.053 |
+| LLM + hybrid Combined | 0.613 | **0.625** | +0.012 |
+| Prompt tokens (typical) | 2629 | **1886** | -28% |
+
+Changes shipped:
+- `pipeline/prompt_builder_v3.py`: `include_bmdm_context: bool = False` (was True)
+- `pipeline/tests/test_prompt_v3.py`: 7/7 pass (added `test_bmdm_context_paragraph_off_by_default`)
+- `scripts/eval_metric_v4.py`: `--with-bmdm-context` opt-in flag (was `--no-bmdm-context` opt-out)
+- `scripts/compare_a11_variants.py`: 4-way comparison utility
+
+The 28% token savings unlock budget for future enrichment (Tahoe / Kang /
+Perturb_KHP signals; richer evidence-case rendering). See
+`attempts/12_cleaner_prompt/result.md`.
+
+---
+
 ## 2026-06-09 (recovery) · attempt 11 · Hagai mouse-BMDM LPS prior + runner-side Replogle DIR blend
 
 Combined the two missing pieces identified by attempts 08/09/10:

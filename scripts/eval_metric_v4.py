@@ -142,7 +142,8 @@ async def main_async(args):
         prompt = build_track_a_prompt(
             row['pert'], row['gene'], prior=prior, kg=kg,
             retriever=retriever, desc=desc,
-            exclude_query=True, seed=42)
+            exclude_query=True, seed=42,
+            include_bmdm_context=args.with_bmdm_context)
         tasks.append((row, prompt))
 
     print(f'queued {len(tasks)} calls (1 per row, concurrency={args.concurrency}, '
@@ -223,6 +224,9 @@ def parse_args():
                     help='which sample to use')
     ap.add_argument('--probe-subdir', type=str, default='eval60',
                     help='subfolder under outputs/ for this probe (e.g. eval60, probe60)')
+    ap.add_argument('--with-bmdm-context', action='store_true',
+                    help='include the 723-token BMDM cell context paragraph '
+                         '(A12 finding: dropping it lifts probe60 Combined; off by default)')
     return ap.parse_args()
 
 
