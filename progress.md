@@ -4,6 +4,68 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (after A15) · attempt 16 · C: strong Replogle anchoring (FAIL) + D: Hagai DIR signal (no help)
+
+User question: "is the runner hybrid post-processing of LLM output? Is
+that fair under Track A?"
+
+Rules check (`project_info/overview.md`):
+- Line 87: "Final prediction_up/prediction_down ... exact aggregation rule is whatever your sample submission encodes"
+- Line 96: "Allowed to train auxiliary models on any publicly available perturbation datasets"
+- Line 111: "Allowed: retrieval from public data ... predictive models trained on public data"
+- Line 112: "Not allowed: any LLM other than GPT-OSS-120B; training or fine-tuning ad-hoc models on the competition's own data"
+
+The hybrid runner is compliant: Replogle is public, no ad-hoc model
+trained on competition data. But user's spirit-of-the-rules instinct
+prompts two alternatives:
+
+### C: Strong R4 prompt anchoring with explicit logFC → P_up_given_DE mapping
+
+| Variant | Pure LLM | + hybrid |
+|---|---|---|
+| **A12 SHIP (vague R4)** | **0.592** | **0.643** |
+| A16 strong anchor | 0.560 (-0.032) | 0.596 (-0.047) |
+
+**Failure mode**: A06 escape-hatch pattern, even worse:
+- A12 SHIP: 29/60 rows at P_up=50 (48%)
+- A16 strong anchor: 50/60 rows at P_up=50 (83%)
+
+The conditional rule `logFC ∈ [-0.2, +0.2] → P_up ≈ 50` became the
+LLM's blanket safe escape. DIR-AUROC LLM-only collapsed 0.540 → 0.478
+due to AUROC tie penalty.
+
+**Lesson reinforced** (3rd confirmation now: A06, A12-A, A16):
+prescriptive numerical anchors in prompts ALWAYS become escape hatches,
+even when conditional. R4 reverted to A12 SHIP wording.
+
+### D: Hagai DIR signal in runner blend (3 variants on A12 SHIP outputs, no API)
+
+| Variant | DE | DIR | Combined |
+|---|---|---|---|
+| **D0 baseline (A15 hybrid)** | 0.644 | 0.641 | **0.643** |
+| D1: raw Hagai sign for non-full | 0.644 | 0.618 | 0.631 (-0.012) |
+| D2: significant-Hagai-only sign | 0.644 | 0.607 | 0.625 (-0.018) |
+| D3: lower α when Hagai strong | 0.644 | 0.641 | 0.643 (=) |
+
+Confirms what the A11 audit already showed: **Hagai LPS direction does
+NOT transfer to CRISPRi direction**. KD of inflammatory pathway
+activators (Tlr4, Myd88) brings LPS-UP targets DOWN, flipping the sign.
+Hagai stays as a DE-magnitude-only signal.
+
+### Verdict
+
+Neither C nor D improves on A15 SHIP. The hybrid runner remains the
+correct post-processing — Track-A compliant + empirically better than
+prompt-only anchoring on this probe.
+
+Ship A15 unchanged.
+
+A + B deferred to plan P-future (logit-space blend + per-row adaptive α).
+
+See `attempts/16_strong_anchor/result.md`.
+
+---
+
 ## 2026-06-11 (much later) · attempt 15 · Hybrid α + nf_prior sweep (Task 7) and k_a/k_c retrieval budget (Task 5)
 
 ### Task 7: Hybrid runner alpha + non-full-prior sweep (no API spend)
