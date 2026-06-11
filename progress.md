@@ -4,6 +4,63 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (much later) · attempt 15 · Hybrid α + nf_prior sweep (Task 7) and k_a/k_c retrieval budget (Task 5)
+
+### Task 7: Hybrid runner alpha + non-full-prior sweep (no API spend)
+
+Sweep on the A12 SHIP outputs to tune `hybrid_direction()` defaults.
+Tight 2D grid revealed a robust local max at α ∈ [0.40, 0.50], nf_prior = 0.58:
+
+```
+alpha   nf=0.56  nf=0.58  nf=0.60  nf=0.61  nf=0.62
+ 0.30    0.625    0.632    0.632    0.623    0.623
+ 0.35    0.626    0.634    0.634    0.625    0.625
+ 0.40    0.626   *0.643*   0.625    0.625    0.625
+ 0.45    0.626   *0.643*   0.634    0.625    0.625
+ 0.50    0.626   *0.643*   0.634    0.634    0.625
+ 0.55    0.626    0.626    0.634    0.634    0.634
+```
+
+LOO cross-validation: in-sample 0.643, LOO mean 0.6427 ± 0.008.
++0.018 over the old (α=0.40, nf=0.62) at >2× LOO std → real signal.
+
+Ship updated: `hybrid_direction(α=0.45, nf=0.58)`.
+
+### Task 5: k_a / k_c retrieval budget ablation (2 new evals)
+
+Inverted U-shape — both extremes hurt:
+
+| Variant | DE | DIR (LLM) | Combined LLM | + hybrid |
+|---|---|---|---|---|
+| k=3+3 | 0.525 | 0.447 | 0.486 | 0.567 |
+| **k=5+5 (SHIP)** | **0.644** | **0.540** | **0.592** | **0.643** |
+| k=10+10 | 0.517 | 0.493 | 0.505 | 0.556 |
+
+k=3+3 (-0.076 hybrid): too thin, not enough structural diversity.
+k=10+10 (-0.087 hybrid): too many → attention dilution (A14 pattern).
+
+**k=5+5 stays the ship default.**
+
+### Cumulative improvement on probe60
+
+| Stage | Combined |
+|---|---|
+| A07 baseline | 0.466 |
+| A11 (+ Hagai prompt + hybrid runner α=0.4) | 0.613 |
+| A12 SHIP (+ drop BMDM context) | 0.625 |
+| **A15 SHIP (+ tuned hybrid α=0.45, nf=0.58)** | **0.643** |
+
+Top-4 public LB band: 0.628 – 0.650. **probe60 estimate now inside the LB band.**
+
+### Files
+
+- `scripts/sweep_hybrid_alpha.py` (Task 7 sweep + LOO)
+- `scripts/eval_metric_v4.py` (--k-a / --k-c flags)
+- `pipeline/runner.py` (`hybrid_direction(α=0.45, nf=0.58)` defaults)
+- `attempts/15_retrieval_budget/{README,result}.md`
+
+---
+
 ## 2026-06-11 (still later) · attempt 14 · Per-example Hagai + Replogle enrichment — FAIL
 
 Hypothesis from A12/A13 heuristic: adding active per-example data the LLM

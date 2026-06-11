@@ -38,8 +38,8 @@ def fuse_q_r_logit(q_per_seed: list[float], r_per_seed: list[float]
 
 
 def hybrid_direction(r_llm: float, pert: str, gene: str,
-                     replogle_prior, alpha: float = 0.4,
-                     non_full_default: float = 0.62) -> tuple[float, str]:
+                     replogle_prior, alpha: float = 0.45,
+                     non_full_default: float = 0.58) -> tuple[float, str]:
     """Replace the LLM's r=P(up|DE) with a hybrid that anchors on Replogle.
 
     Empirically (attempts 09 + 11), on test-condition data (probe60_rare_gene)
@@ -117,7 +117,8 @@ def assemble_submission(outputs_dir: str | Path,
                         out_path: str | Path = ROOT/'submission.csv',
                         model_name: str = 'gpt-oss-120b',
                         apply_hybrid_direction: bool = True,
-                        hybrid_alpha: float = 0.4):
+                        hybrid_alpha: float = 0.45,
+                        hybrid_non_full_default: float = 0.58):
     """Read per-seed LLM outputs from {outputs_dir}/{seed}/{id}.txt and
     assemble submission.csv with required Track A columns.
 
@@ -155,7 +156,9 @@ def assemble_submission(outputs_dir: str | Path,
                     assemble_submission._prior = ReplogPrior()
                 r_final, _src = hybrid_direction(
                     r_llm_final, row['pert'], row['gene'],
-                    assemble_submission._prior, alpha=hybrid_alpha)
+                    assemble_submission._prior,
+                    alpha=hybrid_alpha,
+                    non_full_default=hybrid_non_full_default)
             else:
                 r_final = r_llm_final
             final_up = q_final * r_final

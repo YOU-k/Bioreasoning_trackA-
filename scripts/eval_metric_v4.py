@@ -143,6 +143,7 @@ async def main_async(args):
             row['pert'], row['gene'], prior=prior, kg=kg,
             retriever=retriever, desc=desc,
             exclude_query=True, seed=42,
+            k_a=args.k_a, k_c=args.k_c,
             include_bmdm_context=args.with_bmdm_context,
             include_decision_rules=not args.no_decision_rules,
             include_reasoning_protocol=not args.no_reasoning_protocol,
@@ -236,6 +237,10 @@ def parse_args():
                     help='ablate the A1-B2 step-by-step reasoning protocol (~200 tokens)')
     ap.add_argument('--enrich-examples', action='store_true',
                     help='render each evidence case with inline Hagai |logFC| + Replogle logFC')
+    ap.add_argument('--k-a', type=int, default=5,
+                    help='# of analog examples (DE-observed pairs); current ship=5')
+    ap.add_argument('--k-c', type=int, default=5,
+                    help='# of contrast examples (DE-not-observed pairs); current ship=5')
     return ap.parse_args()
 
 
