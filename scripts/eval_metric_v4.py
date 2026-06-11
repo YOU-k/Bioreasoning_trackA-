@@ -147,7 +147,8 @@ async def main_async(args):
             include_bmdm_context=args.with_bmdm_context,
             include_decision_rules=not args.no_decision_rules,
             include_reasoning_protocol=not args.no_reasoning_protocol,
-            enrich_examples=args.enrich_examples)
+            enrich_examples=args.enrich_examples,
+            hide_example_labels=args.hide_example_labels)
         tasks.append((row, prompt))
 
     print(f'queued {len(tasks)} calls (1 per row, concurrency={args.concurrency}, '
@@ -241,6 +242,8 @@ def parse_args():
                     help='# of analog examples (DE-observed pairs); current ship=5')
     ap.add_argument('--k-c', type=int, default=5,
                     help='# of contrast examples (DE-not-observed pairs); current ship=5')
+    ap.add_argument('--hide-example-labels', action='store_true',
+                    help='Test α: render evidence cases without their Result line')
     return ap.parse_args()
 
 

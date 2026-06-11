@@ -201,6 +201,25 @@ class ExampleRetriever:
         return '\n'.join(lines)
 
     @staticmethod
+    def format_block_no_labels(analog: list[tuple[str, str, str]],
+                               contrast: list[tuple[str, str, str]],
+                               *, seed: int = 42) -> str:
+        """Test α: render evidence cases WITHOUT labels.
+
+        Each example shows only `pert=X, target=Y` — no Result field.
+        Tests whether the LLM benefits from examples via structural existence
+        alone (proving the question is well-defined) vs. needing label info.
+        """
+        if not analog and not contrast:
+            return "No structurally similar (perturbed, target) pairs available in train."
+        combined = list(analog) + list(contrast)
+        random.Random(seed).shuffle(combined)
+        lines = []
+        for i, (p, g, _lbl) in enumerate(combined, 1):
+            lines.append(f"Example {i}: pert=`{p}`, target=`{g}`")
+        return '\n'.join(lines)
+
+    @staticmethod
     def format_block_analog_contrast(analog: list[tuple[str, str, str]],
                                      contrast: list[tuple[str, str, str]],
                                      *, task: str, seed: int = 42) -> str:

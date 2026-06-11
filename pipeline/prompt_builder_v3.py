@@ -215,7 +215,8 @@ def build_track_a_prompt(pert: str, gene: str, *,
                          include_bmdm_context: bool = False,
                          include_decision_rules: bool = True,
                          include_reasoning_protocol: bool = True,
-                         enrich_examples: bool = False) -> str:
+                         enrich_examples: bool = False,
+                         hide_example_labels: bool = False) -> str:
     """Build the single-call Track-A prompt for (pert, gene)."""
     prior = prior or ReplogPrior()
     hagai = hagai or hagai_default()
@@ -229,7 +230,10 @@ def build_track_a_prompt(pert: str, gene: str, *,
     analog, contrast = retriever.retrieve_analog_contrast(
         pert, gene, task='de', k_a=k_a, k_c=k_c,
         exclude_query=exclude_query, seed=seed)
-    if enrich_examples:
+    if hide_example_labels:
+        ex_block = ExampleRetriever.format_block_no_labels(
+            analog, contrast, seed=seed)
+    elif enrich_examples:
         ex_block = _format_evidence_enriched(
             analog, contrast, hagai=hagai, prior=prior, seed=seed)
     else:
@@ -249,12 +253,16 @@ def build_track_a_prompt(pert: str, gene: str, *,
         f'  Target gene (readout):       `{gene}`',
         f'    Description: {desc.get(gene, pathway_fallback=gene_paths)}',
         '',
-        '## Evidence cases from train (analogue + contrast, real labels)',
-        f'{len(analog)} analogue cases (similar pert/gene pairs where DE was observed) and '
-        f'{len(contrast)} contrast cases (similar pairs where DE was NOT observed). '
-        'Pairs were retrieved by STRING + Reactome similarity to the query. The mix '
-        'of Yes/No outcomes is by construction; reason about which side the present '
-        'case is closer to and why. Do not vote — apply rule R1.',
+        '## Evidence cases from train (analogue + contrast)',
+        (f'{len(analog) + len(contrast)} structurally similar (pert, target) pairs that exist '
+         f'in train, retrieved by STRING + Reactome similarity to the query. '
+         f'These exist as a sanity check that the question is well-defined — '
+         f'the LLM should not infer outcome from their absence.') if hide_example_labels else
+        (f'{len(analog)} analogue cases (similar pert/gene pairs where DE was observed) and '
+         f'{len(contrast)} contrast cases (similar pairs where DE was NOT observed). '
+         'Pairs were retrieved by STRING + Reactome similarity to the query. The mix '
+         'of Yes/No outcomes is by construction; reason about which side the present '
+         'case is closer to and why. Do not vote — apply rule R1.'),
         ex_block,
         '',
         '## ' + _format_hagai(hagai, pert, gene),

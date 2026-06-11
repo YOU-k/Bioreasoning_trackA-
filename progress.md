@@ -4,6 +4,57 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (after A17) · A18 + A19 · Examples: do labels matter? does ratio matter?
+
+User's high-level question after A17 surprise: does example content
+actually drive LLM output, or just structural existence? Two cheap probes.
+
+### A18 (Test α): remove example labels entirely
+
+Each evidence case rendered as `pert=X, target=Y` — no Result line.
+
+| Metric | A12 SHIP (with labels) | A18 (no labels) | Δ |
+|---|---|---|---|
+| DE-AUROC | 0.644 | 0.606 | -0.038 |
+| Combined (LLM) | 0.592 | 0.559 | -0.033 |
+| **Combined (+ hybrid)** | **0.643** | 0.622 | -0.021 |
+
+Labels carry ~0.038 DE-AUROC of real signal but are NOT dominant.
+LLM's conservative bias (mean P_DE = 0.24) persists without labels →
+the bias is not from label info.
+
+### A19 (Test β): example RATIO sensitivity (total k=10, vary k_a:k_c)
+
+| Variant | P_DE mean | P_DE=20 cluster | Combined (LLM) | Combined (+hybrid) |
+|---|---|---|---|---|
+| **A12 SHIP (5+5)** | 0.241 | 22/60 | **0.592** | **0.643** |
+| β1: 7+3 DE-heavy | 0.291 (+0.05) | 24/60 | 0.506 (-0.086) | 0.543 (-0.100) |
+| β2: 3+7 none-heavy | 0.238 (no shift) | 16/60 | 0.478 (-0.114) | 0.556 (-0.087) |
+
+**Vote-bias IS real but asymmetric**: DE-heavy uplifts mean P_DE by 0.05;
+none-heavy doesn't shift mean (already conservative) but migrates the
+cluster from P_DE=20 to P_DE=15.
+
+**BOTH imbalanced ratios HURT AUROC by ~0.10**: the shift is uniform/
+non-row-specific, so it introduces noise rather than improving ranking.
+
+### Synthesis: does example content determine output?
+
+> "example 里的信息是否就是会大概率决定输出的结果是什么？"
+
+Partial yes, with nuance:
+- Labels carry ~0.038 AUROC of info
+- Ratio shifts output distribution **uniformly** (not row-specific)
+- Uniform shifts always hurt AUROC ranking
+- LLM is NOT doing simple vote-counting (mean P_DE 0.24 vs 50% example DE rate)
+
+**Paper §3.4.2 5+5 design is empirically validated as rank-optimal.**
+Any deviation from balance hurts AUROC. A15 SHIP confirmed locked-in.
+
+See `attempts/{18_no_example_labels,19_example_ratio}/result.md`.
+
+---
+
 ## 2026-06-11 (after A16) · attempt 17 · Inject "balanced dataset" framing into R1 → counter-intuitive FAIL
 
 User asked: why is LLM in "conservative mode" (P_DE mean 0.241 vs train
