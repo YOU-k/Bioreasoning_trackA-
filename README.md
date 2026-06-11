@@ -36,10 +36,18 @@ python -c "from pipeline.runner import build_all_prompts; build_all_prompts()"
 # -> attempts/02_baseline_prompts/prompts/{id}.txt
 
 # 6. Run GPT-OSS-120B × 3 seeds (on the LLM server)
+#    Track A limits INPUT prompt length to 4,096 tokens.
+#    For gpt-oss, use a Harmony/chat-compatible serving path.
 export LLM_BASE_URL=http://your-vllm-server:8000/v1
 export LLM_API_KEY=anything
 python scripts/run_inference.py --model gpt-oss-120b --concurrency 8
 # -> attempts/02_baseline_prompts/outputs/{seed}/{id}.txt
+
+# Local vLLM note:
+# `scripts/run_inference_v3_local.py` defaults to a conservative dual-H100
+# config (`--mode chat --enforce-eager --max-model-len 3072 --max-num-seqs 1`)
+# because gpt-oss-120b startup is sensitive to aggressive compile/CUDAGraph
+# settings.
 
 # 7. Assemble submission zip
 python scripts/make_submission.py \

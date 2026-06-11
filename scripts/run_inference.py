@@ -1,5 +1,10 @@
-"""Run GPT-OSS-120B (or any OpenAI-compatible endpoint) over the 1813
-question-specific prompts × 3 seeds. Saves outputs as:
+"""Run GPT-OSS-120B over the 1813 question-specific prompts × 3 seeds.
+
+This path assumes an OpenAI-compatible chat endpoint that already applies the
+model's native Harmony/chat template for gpt-oss. Track A's 4,096-token limit
+applies to the INPUT PROMPT only; `max_tokens` here is purely a completion cap.
+
+Saves outputs as:
 
   outputs/{seed}/{id}.txt        raw LLM completion text
   outputs/tokens/{id}.json       {"42": n_42, "43": n_43, "44": n_44}
@@ -21,21 +26,23 @@ import argparse, asyncio, json, os, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-PROMPTS_DIR = ROOT / 'attempts/02_baseline_prompts/prompts'
-DEFAULT_OUT = ROOT / 'attempts/02_baseline_prompts/outputs'
+PROMPTS_DIR = ROOT / 'attempts/12_cleaner_prompt/prompts'
+DEFAULT_OUT = ROOT / 'attempts/12_cleaner_prompt/outputs'
 
 
 async def run_one(client, model, prompt_text, seed, max_tokens):
     """Single completion call. Returns (text, tokens_used)."""
     try:
-        resp = await client.chat.completions.create(
+        req = dict(
             model=model,
             messages=[{'role': 'user', 'content': prompt_text}],
             temperature=1.0,
             top_p=1.0,
             seed=seed,
-            max_tokens=max_tokens,
         )
+        if max_tokens and max_tokens > 0:
+            req['max_tokens'] = max_tokens
+        resp = await client.chat.completions.create(**req)
         text = resp.choices[0].message.content or ''
         toks = (getattr(resp.usage, 'total_tokens', 0)
                 if resp.usage else 0)
@@ -131,8 +138,11 @@ def parse_args():
     ap.add_argument('--model', required=True, help='model id understood by the endpoint')
     ap.add_argument('--seeds', type=int, nargs='+', default=[42, 43, 44])
     ap.add_argument('--concurrency', type=int, default=8)
-    ap.add_argument('--max-tokens', type=int, default=1500,
-                    help='max output tokens per call (reasoning trace can be long)')
+    ap.add_argument(
+        '--max-tokens', type=int, default=0,
+        help=('optional completion cap only; 0 disables the explicit cap. '
+              'Track A limits prompt tokens, not response tokens')
+    )
     ap.add_argument('--timeout', type=int, default=300)
     ap.add_argument('--report-every', type=int, default=30, help='seconds between progress prints')
     ap.add_argument('--limit', type=int, default=0, help='for smoke test: only run first N prompts')

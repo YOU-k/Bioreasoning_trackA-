@@ -10,7 +10,7 @@ from __future__ import annotations
 import csv, json, math, os, time
 from pathlib import Path
 from .replogle_prior import ReplogPrior
-from .prompt_builder import build_prompt, estimate_tokens
+from .prompt_builder_v3 import build_track_a_prompt, estimate_tokens
 from .output_parser import parse
 
 
@@ -38,8 +38,8 @@ def fuse_q_r_logit(q_per_seed: list[float], r_per_seed: list[float]
 
 
 def hybrid_direction(r_llm: float, pert: str, gene: str,
-                     replogle_prior, alpha: float = 0.45,
-                     non_full_default: float = 0.58) -> tuple[float, str]:
+                     replogle_prior, alpha: float = 0.4,
+                     non_full_default: float = 0.62) -> tuple[float, str]:
     """Replace the LLM's r=P(up|DE) with a hybrid that anchors on Replogle.
 
     Empirically (attempts 09 + 11), on test-condition data (probe60_rare_gene)
@@ -67,30 +67,44 @@ DATA = ROOT / 'data'
 
 
 def build_all_prompts(test_csv: str | Path = DATA/'test.csv',
-                      out_dir: str | Path = ROOT/'attempts/02_baseline_prompts/prompts',
-                      use_kg: bool = False) -> dict:
+                      out_dir: str | Path = ROOT/'attempts/12_cleaner_prompt/prompts',
+                      use_kg: bool = True) -> dict:
     """Build per-row prompts for every row in test.csv.
 
     Args:
-        use_kg: include Layer 2 (KG mechanism) and Layer 3 (cell-type guide)
-                in addition to Layer 1 (Replogle prior). attempt 02 = False,
-                attempt 03+ = True.
+        use_kg: retained for backward-compatible CLI signatures. The shipped
+                Track-A path uses prompt_builder_v3, which always uses KG-backed
+                retrieval for analogue/contrast examples.
 
     Returns a dict summary {id: {pert, gene, tier, n_tokens, prompt_path}}.
     """
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     prior = ReplogPrior()
-    kg = None
-    if use_kg:
-        from .kg_retrieval import KGRetrieval
-        kg = KGRetrieval()
+    from .gene_desc import default as gene_desc_default
+    from .hagai_prior import default as hagai_default
+    from .kg_retrieval import KGRetrieval
+    from .retrieve_examples import ExampleRetriever
+
+    kg = KGRetrieval()
+    retriever = ExampleRetriever(kg=kg)
+    desc = gene_desc_default()
+    hagai = hagai_default()
     summary = {}
     t0 = time.time()
     with open(test_csv) as f:
         rows = list(csv.DictReader(f))
     for i, row in enumerate(rows):
         rid, pert, gene = row['id'], row['pert'], row['gene']
-        prompt = build_prompt(pert, gene, prior, kg=kg, use_kg=use_kg)
+        prompt = build_track_a_prompt(
+            pert, gene,
+            prior=prior,
+            hagai=hagai,
+            kg=kg,
+            retriever=retriever,
+            desc=desc,
+            exclude_query=False,
+            seed=42,
+        )
         path = out_dir / f"{rid}.txt"
         with open(path, 'w') as fh: fh.write(prompt)
         summary[rid] = {
@@ -117,8 +131,7 @@ def assemble_submission(outputs_dir: str | Path,
                         out_path: str | Path = ROOT/'submission.csv',
                         model_name: str = 'gpt-oss-120b',
                         apply_hybrid_direction: bool = True,
-                        hybrid_alpha: float = 0.45,
-                        hybrid_non_full_default: float = 0.58):
+                        hybrid_alpha: float = 0.4):
     """Read per-seed LLM outputs from {outputs_dir}/{seed}/{id}.txt and
     assemble submission.csv with required Track A columns.
 
@@ -156,9 +169,7 @@ def assemble_submission(outputs_dir: str | Path,
                     assemble_submission._prior = ReplogPrior()
                 r_final, _src = hybrid_direction(
                     r_llm_final, row['pert'], row['gene'],
-                    assemble_submission._prior,
-                    alpha=hybrid_alpha,
-                    non_full_default=hybrid_non_full_default)
+                    assemble_submission._prior, alpha=hybrid_alpha)
             else:
                 r_final = r_llm_final
             final_up = q_final * r_final

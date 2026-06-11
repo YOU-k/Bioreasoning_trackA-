@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """Local GPT-OSS inference for Attempt 04/05 two-prompt pipeline.
 
+Legacy script for historical two-prompt experiments. Note: gpt-oss should be
+used through its Harmony/chat template; this script is kept for archival
+reproducibility and is not the recommended Track-A path.
+
 Runs DE and DIR prompts separately for test rows and writes:
   <out>/de/<seed>/<id>.txt
   <out>/dir/<seed>/<id>.txt
@@ -57,7 +61,7 @@ def parse_args():
     ap.add_argument('--out', type=Path, default=DEFAULT_OUT)
     ap.add_argument('--limit', type=int, default=10)
     ap.add_argument('--seeds', type=int, nargs='+', default=[42])
-    ap.add_argument('--max-model-len', type=int, default=4096)
+    ap.add_argument('--max-model-len', type=int, default=16384)
     ap.add_argument('--max-tokens-de', type=int, default=1200)
     ap.add_argument('--max-tokens-dir', type=int, default=1200)
     ap.add_argument('--gpu-memory-utilization', type=float, default=0.92)
