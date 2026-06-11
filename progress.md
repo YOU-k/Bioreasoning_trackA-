@@ -4,6 +4,59 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (after A16) · attempt 17 · Inject "balanced dataset" framing into R1 → counter-intuitive FAIL
+
+User asked: why is LLM in "conservative mode" (P_DE mean 0.241 vs train
+0.447) and can we use the distribution info from `discussion/analysis.md`
+(train base rate 45% DE, up:down ≈ 2.2:1)?
+
+**Hypothesis**: tell the LLM the dataset is intentionally balanced (~45%
+DE per-pert sampling) so its biological prior of ~1-5% natural DE doesn't
+bias it toward `none`. Reframe low P_DE band as needing "active
+counter-evidence", not absence-of-evidence. NO prescriptive numerical
+defaults (A06/A16 lesson respected).
+
+**Result on probe60** (seed=789):
+
+Distribution shift worked exactly as intended:
+- P_DE mean: 0.241 → 0.411 (close to train 0.447)
+- Rows at P_DE = 20: 22 → 11 (cluster halved)
+- Top-5 P_DE values: spread across 20/55/40/35/60 (not just 20/15/25/35/10)
+
+But AUROC went DOWN:
+
+| Metric | A12 SHIP | A17 |
+|---|---|---|
+| DE-AUROC | 0.644 | 0.548 (-0.096) |
+| Combined LLM-only | 0.592 | 0.508 (-0.084) |
+| Combined hybrid | 0.643 | 0.577 (-0.066) |
+
+**Counter-intuitive lesson**: Calibration ≠ AUROC improvement.
+
+Why distribution-matching hurt:
+- A12 SHIP's "conservative bias at 20" was actually preserving rank info.
+  22 rows at P_DE=20 was a tied cluster, but they were mostly true `none`
+  + uncertain rows that LLM correctly biased low.
+- High-confidence DE rows ranked CLEANLY above this 20-cluster (70+).
+- After spreading uncertain rows to the 35-60 middle band, true DE and
+  true `none` rows MIXED in the new middle. High-confidence DE still
+  ranked above (unchanged), but middle-band noise dragged AUROC down.
+
+The compressed LLM output was BETTER for ranking even though worse for
+calibration. AUROC only cares about ranking; monotonic shifts to match
+calibration can introduce noise into the middle and hurt AUROC.
+
+**Verdict**: revert R1 to A12 SHIP language. A15 SHIP stands.
+
+**Latent use of train distribution info**: still potentially valuable
+for downstream stacking / ensembling (where calibration matters) or as a
+sanity check on submission output. Not directly usable in the prompt
+without hurting AUROC.
+
+See `attempts/17_balanced_framing/result.md`.
+
+---
+
 ## 2026-06-11 (after A15) · attempt 16 · C: strong Replogle anchoring (FAIL) + D: Hagai DIR signal (no help)
 
 User question: "is the runner hybrid post-processing of LLM output? Is
