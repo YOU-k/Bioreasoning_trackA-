@@ -143,7 +143,9 @@ async def main_async(args):
             row['pert'], row['gene'], prior=prior, kg=kg,
             retriever=retriever, desc=desc,
             exclude_query=True, seed=42,
-            include_bmdm_context=args.with_bmdm_context)
+            include_bmdm_context=args.with_bmdm_context,
+            include_decision_rules=not args.no_decision_rules,
+            include_reasoning_protocol=not args.no_reasoning_protocol)
         tasks.append((row, prompt))
 
     print(f'queued {len(tasks)} calls (1 per row, concurrency={args.concurrency}, '
@@ -227,6 +229,10 @@ def parse_args():
     ap.add_argument('--with-bmdm-context', action='store_true',
                     help='include the 723-token BMDM cell context paragraph '
                          '(A12 finding: dropping it lifts probe60 Combined; off by default)')
+    ap.add_argument('--no-decision-rules', action='store_true',
+                    help='ablate the R1-R5 Decision rules block (~250 tokens)')
+    ap.add_argument('--no-reasoning-protocol', action='store_true',
+                    help='ablate the A1-B2 step-by-step reasoning protocol (~200 tokens)')
     return ap.parse_args()
 
 

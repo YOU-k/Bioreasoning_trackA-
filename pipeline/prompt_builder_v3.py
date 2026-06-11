@@ -75,9 +75,10 @@ Step A3 — Cascade: trace KD `{pert}` → pathway / TF / stress program → `{g
 Step A4 — DE call: locate the query on the P_DE ladder (see ladder below). Anchor on Hagai magnitude (R3) and Replogle |logFC| (R4); compare analogue vs contrast cases; apply R1-R2.
 
 Step B1 — Direction logic: is `{pert}` (or its immediate downstream node) an ACTIVATOR or REPRESSOR of programs that include `{gene}`? Apply: KD of activator → DOWN; KD of repressor → UP; KD that triggers ISR/UPR/inflammation → stress-response targets UP. If Replogle has a direct (pert, gene) ortholog match, trust its sign unless R4 contradicts.
-Step B2 — Direction call: locate the query on the P_up_given_DE ladder (see ladder below). Apply R4 + signed-pathway logic.
+Step B2 — Direction call: locate the query on the P_up_given_DE ladder (see ladder below). Apply R4 + signed-pathway logic."""
 
-P_DE ladder — locate the query on this scale of DE-magnitude evidence:
+
+_TIER_LADDERS = """P_DE ladder — locate the query on this scale of DE-magnitude evidence:
    90-100  direct, well-established BMDM regulation (analogues + Replogle + signed cascade all agree)
    70-89   strong pathway link + analogue / Replogle support
    50-69   plausible link, context uncertain
@@ -170,7 +171,9 @@ def build_track_a_prompt(pert: str, gene: str, *,
                          k_a: int = 5, k_c: int = 5,
                          exclude_query: bool = False,
                          seed: int = 42,
-                         include_bmdm_context: bool = False) -> str:
+                         include_bmdm_context: bool = False,
+                         include_decision_rules: bool = True,
+                         include_reasoning_protocol: bool = True) -> str:
     """Build the single-call Track-A prompt for (pert, gene)."""
     prior = prior or ReplogPrior()
     hagai = hagai or hagai_default()
@@ -212,12 +215,14 @@ def build_track_a_prompt(pert: str, gene: str, *,
         '',
         '## ' + _format_replogle(prior, pert, gene),
         '',
-        _RULES,
-        '',
-        _PROTOCOL.format(pert=pert, gene=gene),
-        '',
-        _OUTPUT_FORMAT,
     ]
+    if include_decision_rules:
+        body += [_RULES, '']
+    if include_reasoning_protocol:
+        body += [_PROTOCOL.format(pert=pert, gene=gene), '']
+    # Tier ladders always included — descriptive calibration anchors are
+    # essential per A06 → A07 finding; cheap (~250 tokens).
+    body += [_TIER_LADDERS.format(pert=pert, gene=gene), '', _OUTPUT_FORMAT]
     return '\n'.join(body)
 
 

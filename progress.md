@@ -4,6 +4,52 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (later) · attempt 13 · Probe whether Decision rules + Reasoning protocol are also boilerplate
+
+Continued user-prompted ablation of hand-written blocks in the prompt.
+Two candidates left after A12:
+
+- **Decision rules R1-R5** (~470 tokens): "plausibility ≠ prediction",
+  "Hagai magnitude only", "Replogle direction transfer", etc.
+- **Reasoning protocol A1-B2** (~290 tokens): forced step-by-step.
+
+Three new probe60 runs:
+
+| Variant | DE | DIR (LLM) | LLM Combined | + hybrid Combined |
+|---|---|---|---|---|
+| **A12 SHIP (rules + protocol)** | **0.644** | 0.540 | **0.592** | **0.625** |
+| no Decision rules | 0.553 | 0.467 | 0.510 (-0.082) | 0.572 (-0.053) |
+| no Reasoning protocol | 0.549 | 0.395 | 0.472 (-0.120) | 0.568 (-0.057) |
+| no rules + no protocol | 0.502 | 0.487 | 0.495 (-0.097) | 0.564 (-0.061) |
+
+**Both blocks are load-bearing**. Effect sizes (0.05-0.12 Combined) exceed
+the ~0.04 sampling-noise band on 60 rows. Hybrid runner cushions the loss
+on DIR (Replogle blend handles most of DIR signal) but DE-AUROC drops
+0.644 → 0.55ish across all ablations and drags Combined down.
+
+**Verdict**: keep both. A12 SHIP remains the recommended config.
+
+**Design heuristic** from A12 + A13:
+
+| Boilerplate type | Effect | Example |
+|---|---|---|
+| **Passive** knowledge dump | net negative | BMDM cell context paragraph |
+| **Active** reasoning instruction | net positive | Decision rules R1-R5 |
+| **Active** output structure | net positive | Reasoning protocol A1-B2 |
+
+Prefer instructions that change HOW the LLM thinks. Drop facts the LLM
+already knows. Default keep R1-R5 + A1-B2; drop hand-written backgrounders.
+
+**Files**:
+- `pipeline/prompt_builder_v3.py`: `include_decision_rules` and `include_reasoning_protocol` flags (both default True); `_TIER_LADDERS` split out from `_PROTOCOL` so the ladders are always included even when reasoning protocol is ablated.
+- `scripts/eval_metric_v4.py`: `--no-decision-rules` and `--no-reasoning-protocol` ablation flags.
+- `scripts/compare_a13_variants.py`: 4-way comparison utility.
+- `attempts/13_minimal_prompt/{README,result}.md` + outputs/
+
+See `attempts/13_minimal_prompt/result.md`.
+
+---
+
 ## 2026-06-11 · attempt 12 · Drop the hand-written BMDM context paragraph
 
 User audited the A11 prompt and flagged that much of the ~2630 tokens is
