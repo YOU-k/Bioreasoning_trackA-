@@ -140,6 +140,47 @@ def _format_hagai(hagai: HagaiPrior, pert: str, gene: str) -> str:
     )
 
 
+def _format_evidence_enriched(analog: list, contrast: list, *,
+                              hagai: HagaiPrior, prior: ReplogPrior,
+                              seed: int = 42) -> str:
+    """Enriched version of format_block_analog_contrast for the DE task.
+
+    Each example line now includes:
+      - pert / gene names and real DE-task label (Yes/No)
+      - Hagai |logFC| for the example's pert and gene (mouse-native)
+      - Replogle logFC for the (pert, gene) pair if Replogle has full match
+
+    This costs ~25-35 tokens per example vs the plain version's ~12. The
+    rationale is that the LLM should be able to see WHICH dimension makes
+    each example similar to the query, not just its label.
+    """
+    if not analog and not contrast:
+        return "No structurally similar (perturbed, target) pairs available in train."
+    import random as _random
+    combined = list(analog) + list(contrast)
+    _random.Random(seed).shuffle(combined)
+    lines = []
+    for i, (p, g, lbl) in enumerate(combined, 1):
+        result = ('Yes (DE observed)' if lbl in ('up', 'down')
+                  else 'No (not DE)')
+        # Hagai features
+        hp = hagai.get(p); hg = hagai.get(g)
+        feats = []
+        feats.append(
+            f"Hagai pert |logFC|={abs(hp['logfc']):.2f}" if hp else "Hagai pert n/a")
+        feats.append(
+            f"Hagai target |logFC|={abs(hg['logfc']):.2f}" if hg else "Hagai target n/a")
+        # Replogle direct logFC if available
+        if prior.tier(p, g) == 'full':
+            rep_lf = prior.get_pair_logfc(p, g)
+            feats.append(f"Replogle logFC={rep_lf:+.2f}")
+        lines.append(
+            f"Example {i}: pert=`{p}`, target=`{g}` → {result}. "
+            f"[{'; '.join(feats)}]"
+        )
+    return '\n'.join(lines)
+
+
 def _format_replogle(prior: ReplogPrior, pert: str, gene: str) -> str:
     tier = prior.tier(pert, gene)
     if tier == 'none':
@@ -173,7 +214,8 @@ def build_track_a_prompt(pert: str, gene: str, *,
                          seed: int = 42,
                          include_bmdm_context: bool = False,
                          include_decision_rules: bool = True,
-                         include_reasoning_protocol: bool = True) -> str:
+                         include_reasoning_protocol: bool = True,
+                         enrich_examples: bool = False) -> str:
     """Build the single-call Track-A prompt for (pert, gene)."""
     prior = prior or ReplogPrior()
     hagai = hagai or hagai_default()
@@ -187,8 +229,12 @@ def build_track_a_prompt(pert: str, gene: str, *,
     analog, contrast = retriever.retrieve_analog_contrast(
         pert, gene, task='de', k_a=k_a, k_c=k_c,
         exclude_query=exclude_query, seed=seed)
-    ex_block = ExampleRetriever.format_block_analog_contrast(
-        analog, contrast, task='de', seed=seed)
+    if enrich_examples:
+        ex_block = _format_evidence_enriched(
+            analog, contrast, hagai=hagai, prior=prior, seed=seed)
+    else:
+        ex_block = ExampleRetriever.format_block_analog_contrast(
+            analog, contrast, task='de', seed=seed)
 
     pert_paths = kg.get_pathways(pert, top_n=3)
     gene_paths = kg.get_pathways(gene, top_n=3)

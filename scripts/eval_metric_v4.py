@@ -145,7 +145,8 @@ async def main_async(args):
             exclude_query=True, seed=42,
             include_bmdm_context=args.with_bmdm_context,
             include_decision_rules=not args.no_decision_rules,
-            include_reasoning_protocol=not args.no_reasoning_protocol)
+            include_reasoning_protocol=not args.no_reasoning_protocol,
+            enrich_examples=args.enrich_examples)
         tasks.append((row, prompt))
 
     print(f'queued {len(tasks)} calls (1 per row, concurrency={args.concurrency}, '
@@ -233,6 +234,8 @@ def parse_args():
                     help='ablate the R1-R5 Decision rules block (~250 tokens)')
     ap.add_argument('--no-reasoning-protocol', action='store_true',
                     help='ablate the A1-B2 step-by-step reasoning protocol (~200 tokens)')
+    ap.add_argument('--enrich-examples', action='store_true',
+                    help='render each evidence case with inline Hagai |logFC| + Replogle logFC')
     return ap.parse_args()
 
 

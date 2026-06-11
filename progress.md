@@ -4,6 +4,48 @@ Append-only. One block per completed attempt. Newest at the top.
 
 ---
 
+## 2026-06-11 (still later) · attempt 14 · Per-example Hagai + Replogle enrichment — FAIL
+
+Hypothesis from A12/A13 heuristic: adding active per-example data the LLM
+can compare against the query should be net positive. Tested by enriching
+each evidence case from plain `pert=X, target=Y. Result: Yes/No` to
+`... → Yes/No. [Hagai pert |logFC|=A; Hagai target |logFC|=B; Replogle logFC=C]`.
+
+Token cost was minimal (+62 tokens total).
+
+**Result on probe60 (seed=789)**:
+
+| Variant | DE | DIR | LLM Combined | + hybrid |
+|---|---|---|---|---|
+| **A12 SHIP (plain)** | **0.644** | 0.540 | **0.592** | **0.625** |
+| A14 enriched | 0.534 | 0.542 | 0.538 (-0.054) | 0.605 (-0.020) |
+
+DE-AUROC dropped 0.110. The likely failure mode is attention dilution:
+10 bracket-annotated example lines with per-case Hagai/Replogle numbers
+distract the LLM from the query's own Hagai + Replogle blocks downstream,
+and may also induce in-context regression that miscalibrates the query
+prediction.
+
+**Updated design heuristic**:
+
+| Boilerplate type | Effect | Example |
+|---|---|---|
+| Passive knowledge dump | net negative | BMDM context paragraph (A12) |
+| Active reasoning instruction | net positive | Decision rules R1-R5 (A13) |
+| Active output structure | net positive | Reasoning protocol A1-B2 (A13) |
+| **Active per-example data** | **net negative** | Hagai/Replogle inline per case (A14) |
+
+The signal-density vs attention tradeoff: more detail per context block
+may dilute the LLM's attention to the query's own features. Keep examples
+thin; surface priors via dedicated blocks downstream.
+
+**Ship A12 SHIP unchanged.** `enrich_examples: bool = False` is the
+default — flag retained for future negative-result reproducibility.
+
+See `attempts/14_enriched_examples/result.md`.
+
+---
+
 ## 2026-06-11 (later) · attempt 13 · Probe whether Decision rules + Reasoning protocol are also boilerplate
 
 Continued user-prompted ablation of hand-written blocks in the prompt.
