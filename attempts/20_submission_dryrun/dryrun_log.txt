@@ -1,0 +1,34 @@
+[1/4] Generating synthetic LLM outputs in /data/yy_data/Bioreasoning_trackA/attempts/20_submission_dryrun/staging/outputs ...
+      Wrote 1813 rows × 3 seeds = 5439 response files + 1813 token files
+
+[2/4] Assembling submission.csv via pipeline.runner.assemble_submission ...
+Wrote 1813 rows -> /data/yy_data/Bioreasoning_trackA/attempts/20_submission_dryrun/staging/submission.csv
+      Wrote /data/yy_data/Bioreasoning_trackA/attempts/20_submission_dryrun/staging/submission.csv (1,557,474 bytes)
+
+[3/4] Validating against Track-A spec ...
+      rows: 1813, cols: 14
+      column order: OK
+      ✓ all schema checks passed
+
+[4/4] Packaging zip ...
+      Wrote /data/yy_data/Bioreasoning_trackA/attempts/20_submission_dryrun/submission_dryrun.zip (132,888 bytes)
+      Zip contents: ['submission.csv', 'prompt.txt']
+
+=== First row of submission.csv ===
+  id                              : Slc35b1_Pdia6
+  prediction_up                   : 0.275695
+  prediction_down                 : 0.236316
+  prediction_up_seed42            : 0.1634
+  prediction_down_seed42          : 0.6966
+  prediction_up_seed43            : 0.144
+  prediction_down_seed43          : 0.256
+  prediction_up_seed44            : 0.0396
+  prediction_down_seed44          : 0.1804
+  reasoning_trace_seed42          : A1 — Mechanism & analogues: simulated reasoning for Slc35...
+  reasoning_trace_seed43          : A1 — Mechanism & analogues: simulated reasoning for Slc35...
+  reasoning_trace_seed44          : A1 — Mechanism & analogues: simulated reasoning for Slc35...
+  tokens_used                     : 6393
+  model_name                      : gpt-oss-120b
+
+✓ DRY RUN COMPLETE. submission_dryrun.zip is schema-valid.
+  Next: replace synthetic LLM outputs with real GPT-OSS-120B outputs and re-run.
