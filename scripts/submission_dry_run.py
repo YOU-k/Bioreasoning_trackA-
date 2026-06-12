@@ -39,7 +39,7 @@ EXPECTED_COLUMNS = [
     'reasoning_trace_seed42',
     'reasoning_trace_seed43',
     'reasoning_trace_seed44',
-    'tokens_used',
+    'prompt_tokens',         # Kaggle actually rejects `tokens_used` (project_info doc was wrong)
     'model_name',
 ]
 
@@ -56,7 +56,7 @@ COLUMN_TYPES = {
     'reasoning_trace_seed42': str,
     'reasoning_trace_seed43': str,
     'reasoning_trace_seed44': str,
-    'tokens_used': int,
+    'prompt_tokens': int,
     'model_name': str,
 }
 
@@ -181,32 +181,49 @@ def validate_csv(csv_path: Path, test_csv: Path) -> dict:
 def make_prompt_txt(staging: Path) -> Path:
     """Write a prompt.txt that documents the prompt template we use.
 
-    Track-A spec wants the prompt template included in the zip. We embed
-    the current A15 SHIP build_track_a_prompt's template skeleton with
-    placeholders so a verifier can see what we sent.
+    Track-A spec wants the prompt template included in the zip and limits
+    it to <=4096 tokens. v2 of the user's submission was REJECTED with
+    "Prompt-token limit exceeded: max 4,096, but submission reports 6,066",
+    so we must keep this file under that cap.
+
+    Strategy: include ONLY the static skeleton (headers, rules, protocol,
+    output format, tier ladders). Skip the per-query rendered sections
+    (query, evidence cases, Hagai/Replogle blocks) — those are content
+    that varies per row, not part of the prompt TEMPLATE.
     """
     out = staging / 'prompt.txt'
-    # Render one real prompt with placeholder pert/gene as a representative
-    from pipeline.prompt_builder_v3 import build_track_a_prompt
-    try:
-        example = build_track_a_prompt(
-            'PERT_PLACEHOLDER', 'GENE_PLACEHOLDER',
-            exclude_query=False, seed=42,
-        )
-    except Exception as e:
-        example = f'(error rendering example: {e})'
-    out.write_text(
+    from pipeline.prompt_builder_v3 import (
+        _HEADER, _RULES, _PROTOCOL, _TIER_LADDERS, _OUTPUT_FORMAT,
+    )
+    template = (
         '# Track-A submission prompt template (Attempt 15 SHIP)\n'
         '# Architecture: single-call per (pert, gene) per seed.\n'
-        '#   - prompt_builder: pipeline/prompt_builder_v3.py\n'
-        '#   - retrieval:     paper §3.4.2 analog (DE) + contrast (none) k_a=5 + k_c=5\n'
-        '#   - priors used:   Replogle K562/RPE1 logFC, Hagai mouse-BMDM LPS6h |logFC|\n'
-        '#   - runner-side:   3-seed logit fusion of q=P(DE) and r=P(up|DE);\n'
-        '#                    hybrid_direction(α=0.45, nf=0.58) blends Replogle direct\n'
-        '#                    ortholog logFC sign into r for full-tier rows.\n'
-        '# Below is one fully-rendered representative example with placeholder pert/gene:\n\n'
-        + example
+        '#   prompt_builder: pipeline/prompt_builder_v3.py\n'
+        '#   retrieval:      paper §3.4.2 analog (DE) + contrast (none), k_a=5 + k_c=5\n'
+        '#   priors used:    Replogle K562/RPE1 logFC + Hagai mouse-BMDM LPS6h |logFC|\n'
+        '#   runner-side:    3-seed logit fusion of q=P(DE) and r=P(up|DE);\n'
+        '#                   hybrid_direction(α=0.45, nf=0.58) blends Replogle direct\n'
+        '#                   ortholog logFC sign into r for full-tier rows\n'
+        '# Below is the STATIC template (rules + protocol + output format),\n'
+        '# rendered with placeholder {pert}/{gene} tokens. The per-row prompt\n'
+        '# also includes a BMDM-context-stripped query block + analog/contrast\n'
+        '# retrieval + Hagai/Replogle priors before this template.\n\n'
     )
+    body = (
+        _HEADER.format(pert='{pert}', gene='{gene}') + '\n\n'
+        + _RULES + '\n\n'
+        + _PROTOCOL.format(pert='{pert}', gene='{gene}') + '\n\n'
+        + _TIER_LADDERS.format(pert='{pert}', gene='{gene}') + '\n\n'
+        + _OUTPUT_FORMAT
+    )
+    out.write_text(template + body)
+    # Sanity check: estimate tokens (~4 chars per token)
+    est_tokens = len(out.read_text()) // 4
+    if est_tokens >= 4096:
+        print(f'      ⚠ prompt.txt estimated at {est_tokens} tokens >= 4096 cap. '
+              'Kaggle will reject. Trim further.')
+    else:
+        print(f'      prompt.txt ~{est_tokens} tokens (under 4096 cap)')
     return out
 
 

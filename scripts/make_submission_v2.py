@@ -65,7 +65,7 @@ def build_submission(outputs_dir: Path, out_csv: Path, model_name: str, seeds: t
                 'reasoning_trace_seed42': by_seed[42]['trace'],
                 'reasoning_trace_seed43': by_seed[43]['trace'],
                 'reasoning_trace_seed44': by_seed[44]['trace'],
-                'tokens_used': total_tokens,
+                'prompt_tokens': total_tokens,  # Kaggle requires this column name (not `tokens_used`)
                 'model_name': model_name,
             })
 

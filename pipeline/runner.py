@@ -183,7 +183,7 @@ def assemble_submission(outputs_dir: str | Path,
                 'reasoning_trace_seed42': seed_results[42].reasoning or 'none',
                 'reasoning_trace_seed43': seed_results[43].reasoning or 'none',
                 'reasoning_trace_seed44': seed_results[44].reasoning or 'none',
-                'tokens_used': total_tok,
+                'prompt_tokens': total_tok,  # Kaggle column name; was `tokens_used` in docs but rejected
                 'model_name': model_name,
             })
     fieldnames = list(out_rows[0].keys())

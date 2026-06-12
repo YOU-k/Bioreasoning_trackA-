@@ -1,7 +1,49 @@
 # Project status — Bioreasoning Challenge Track A
 
-**As of 2026-06-11.** Single document capturing everything a fresh
+**As of 2026-06-12.** Single document capturing everything a fresh
 session needs to know without re-reading every `progress.md` entry.
+
+---
+
+## 0. URGENT — first LB submission landed (2026-06-12 03:26 UTC)
+
+**LB v3 score = 0.510, rank 31/34** (account: `chloe9698`).
+Probe60 estimate was 0.643. Gap = **-0.133**.
+
+Three submissions failed before v3 succeeded:
+| # | Time UTC | Error |
+|---|---|---|
+| 1 | 03:10 | "missing required column(s): `prompt_tokens`" |
+| 2 | 03:11 | same |
+| 3 | 03:18 | "Prompt-token limit exceeded: max 4,096, reports 6,066" (prompt.txt too long) |
+| **4** | 03:26 | ✓ complete, score 0.510 |
+
+**Critical schema discrepancies our docs got wrong:**
+- `project_info/overview.md:83` documented `tokens_used` column, but Kaggle
+  actually requires `prompt_tokens`. Our `pipeline/runner.py` and
+  `scripts/submission_dry_run.py` wrote `tokens_used` → would be rejected.
+  **FIXED** in commit after the LB landed: all three files now write
+  `prompt_tokens`.
+- The packaged `prompt.txt` must fit under 4,096 tokens. Our previous
+  `submission_dry_run.py` rendered a full per-query prompt (~6,000+ tokens)
+  → would be rejected. **FIXED**: now renders only the static template
+  skeleton (header + rules + protocol + tier ladders + output format =
+  ~1,475 tokens).
+
+**Unanswered: why 0.510 LB vs 0.643 probe60.** Hypotheses, in
+likelihood order:
+1. **GPT-OSS-120B output quality << DeepSeek-Reasoner** on this prompt.
+   Our entire tuning ran on DeepSeek. The local vLLM GPT-OSS-120B may
+   format-fail often → parser falls back to defaults (P_DE=0.45,
+   P_up=0.5) → mass of identical predictions → AUROC near 0.5.
+2. **Hybrid runner not applied** in v3 submission (would need to inspect
+   the submitted CSV to confirm).
+3. **Wrong hybrid params** in v3 (e.g. A11 era α=0.40 nf=0.62 instead of
+   A15 tuned α=0.45 nf=0.58).
+4. **Probe60 estimate was optimistic** despite signal-coverage match.
+
+The submission CSV ref is `/submissions/53587655/53587655.raw` but Kaggle
+doesn't allow re-downloading own submissions for inspection.
 
 ---
 
