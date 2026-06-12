@@ -216,7 +216,8 @@ def build_track_a_prompt(pert: str, gene: str, *,
                          include_decision_rules: bool = True,
                          include_reasoning_protocol: bool = True,
                          enrich_examples: bool = False,
-                         hide_example_labels: bool = False) -> str:
+                         hide_example_labels: bool = False,
+                         include_hagai_block: bool = True) -> str:
     """Build the single-call Track-A prompt for (pert, gene)."""
     prior = prior or ReplogPrior()
     hagai = hagai or hagai_default()
@@ -265,8 +266,10 @@ def build_track_a_prompt(pert: str, gene: str, *,
          'case is closer to and why. Do not vote — apply rule R1.'),
         ex_block,
         '',
-        '## ' + _format_hagai(hagai, pert, gene),
-        '',
+    ]
+    if include_hagai_block:
+        body += ['## ' + _format_hagai(hagai, pert, gene), '']
+    body += [
         '## ' + _format_replogle(prior, pert, gene),
         '',
     ]

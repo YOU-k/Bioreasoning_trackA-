@@ -1,12 +1,100 @@
 # LLM server checklist — diagnose 0.510 LB and re-submit
 
-After the 2026-06-12 0.510 LB landing, this is the concrete checklist
-to run on the LLM server (`root@aipaas.miracle.ac.cn`,
+**Update 2026-06-12 ~06:30 UTC**: hybrid_off submission scored **0.564**
+— +0.054 over v3 (hybrid ON). **Hybrid_direction is HURTING on real
+test**, opposite of probe60 finding. Probe60 was systematically
+optimistic (rare-gene rows still had structural footprint in train).
+The runner Replogle blend + nf=0.58 constant for non-full rows was
+destroying ranking on real test. **Pure LLM logit-fusion (no hybrid)
+is our current real ceiling at 0.564.**
+
+After the 2026-06-12 LB landing + diagnostic submissions, this is the
+concrete checklist to run on the LLM server (`root@aipaas.miracle.ac.cn`,
 `/workspace/volume/data/yy/Bioreasoning_trackA/`).
 
-The two goals: (1) understand WHY 0.510 (probe60 said 0.643), (2) build
-a corrected submission with the schema fix + A15 SHIP hybrid params and
-re-submit.
+The two goals: (1) understand WHY 0.510 hybrid vs 0.564 hybrid-off, and
+(2) test whether Hagai prompt block (which we never independently
+verified on real test) is helping or hurting — same way Replogle hybrid
+turned out to hurt.
+
+---
+
+## NEW: F experiment — re-run inference with `include_hagai_block=False`
+
+Critical finding: hybrid_off scored 0.564 vs hybrid_on 0.510 on real
+test. Replogle blend was hurting because K562/RPE1 → mouse-BMDM unseen-
+gene transfer is unreliable. **Same risk applies to the Hagai prompt
+block**: it's mouse-native data but LPS stimulation, not CRISPRi.
+Probe60 said Hagai helps DE (+0.150 AUROC, A11). But A11 was tested with
+hybrid_on, and we now know probe60 over-rated hybrid effects. Need to
+independently verify Hagai on real test.
+
+```bash
+cd /workspace/volume/data/yy/Bioreasoning_trackA
+git fetch origin && git pull --ff-only
+
+# Confirm the new flag is in prompt_builder_v3:
+grep -n include_hagai_block pipeline/prompt_builder_v3.py
+# expected:
+#   include_hagai_block: bool = True
+#   if include_hagai_block:
+#       body += ['## ' + _format_hagai(...), '']
+
+# Re-run vLLM inference with the new prompt builder. The flag default is
+# True (same as v3), so explicitly pass False:
+python3 - <<'PY'
+import csv, json, time
+from pathlib import Path
+from pipeline.prompt_builder_v3 import build_track_a_prompt
+
+ROOT = Path('.')
+test_rows = list(csv.DictReader(open(ROOT/'data/test.csv')))
+prompts_dir = ROOT / 'attempts/15_retrieval_budget/prompts_no_hagai'
+prompts_dir.mkdir(parents=True, exist_ok=True)
+
+t0 = time.time()
+for i, row in enumerate(test_rows):
+    rid, pert, gene = row['id'], row['pert'], row['gene']
+    p = build_track_a_prompt(
+        pert, gene,
+        exclude_query=False, seed=42,
+        include_hagai_block=False,     # <-- the key flag
+    )
+    (prompts_dir / f'{rid}.txt').write_text(p)
+print(f'built {len(test_rows)} prompts in {time.time()-t0:.0f}s -> {prompts_dir}')
+PY
+
+# Then run GPT-OSS-120B inference 3 seeds × 1813 rows (same harness
+# you used for v3, just point to the new prompts directory).
+# Output goes to attempts/15_retrieval_budget/outputs_no_hagai/{42,43,44}/{id}.txt
+# Token file: attempts/15_retrieval_budget/outputs_no_hagai/tokens/{id}.json
+
+# After inference completes, assemble with hybrid_off:
+python3 - <<'PY'
+from pipeline.runner import assemble_submission
+from pathlib import Path
+ROOT = Path('.')
+assemble_submission(
+    outputs_dir=ROOT/'attempts/15_retrieval_budget/outputs_no_hagai',
+    out_path=ROOT/'attempts/15_retrieval_budget/no_hagai_hybrid_off/submission.csv',
+    model_name='gpt-oss-120b',
+    apply_hybrid_direction=False,     # <-- key: confirm hybrid stays off
+)
+PY
+
+# Package zip and submit.
+```
+
+Expected outcome:
+- If no-Hagai score ≥ 0.564 → Hagai was hurting on test (same as hybrid)
+- If no-Hagai score < 0.564 → Hagai was helping; keep it but stay hybrid_off
+
+### Cheaper alternative if you don't want to rerun 1813×3 GPT-OSS calls
+
+We already submitted F.4 (r=0.5 constant) which directly measures
+DE-AUROC = `2 * F.4_score - 0.5`. If DE-AUROC measured this way is high
+(say >0.62), Hagai's DE signal is real; if it's near 0.5, Hagai might
+not be doing real work either. Awaiting that score now.
 
 ---
 
