@@ -10,8 +10,21 @@ from __future__ import annotations
 import csv, json, math, os, time
 from pathlib import Path
 from .replogle_prior import ReplogPrior
-from .prompt_builder import build_prompt, estimate_tokens
+from .prompt_builder import build_prompt
+from .prompt_builder_v3 import build_track_a_prompt, estimate_tokens
 from .output_parser import parse
+
+
+# Harmony developer-role system prompt baked into the local GPT-OSS-120B
+# inference path on the LLM server (origin/sync/a15-submit-v3). We mirror it
+# here so prompt_tokens can be computed identically on this host.
+_LOCAL_DEV_INSTRUCTIONS = (
+    "Reasoning: low\n"
+    "Follow the user's instructions exactly.\n"
+    "Do not reveal scratch work, drafts, or chain-of-thought.\n"
+    "Write only the final answer block requested by the user.\n"
+    "Stop immediately after the final numeric line."
+)
 
 
 def _logit(p: float, eps: float = 1e-6) -> float:
@@ -170,6 +183,21 @@ def assemble_submission(outputs_dir: str | Path,
                 total_tok = sum(int(d.get(str(s), 0)) for s in seeds)
             else:
                 total_tok = 0
+
+            # Per-call prompt_tokens — Kaggle validates against the 4096 cap.
+            # Rebuild the shipped prompt for this row and estimate tokens.
+            # The LLM-server runner uses the actual GPT-OSS tokenizer; this
+            # fallback rough-counts (len(text)//4) is good enough for the
+            # offline-built submission CSV column.
+            try:
+                _prompt_text = build_track_a_prompt(row['pert'], row['gene'])
+                _prompt_tokens_per_call = (estimate_tokens(_prompt_text)
+                                           + estimate_tokens(_LOCAL_DEV_INSTRUCTIONS))
+            except Exception:
+                _prompt_tokens_per_call = 0
+            _prompt_total = _prompt_tokens_per_call * len(seeds)
+            _completion_tokens_per_call = (max(0, total_tok - _prompt_total)
+                                           // max(1, len(seeds)))
             out_rows.append({
                 'id': rid,
                 'prediction_up': round(final_up, 6),
@@ -183,7 +211,9 @@ def assemble_submission(outputs_dir: str | Path,
                 'reasoning_trace_seed42': seed_results[42].reasoning or 'none',
                 'reasoning_trace_seed43': seed_results[43].reasoning or 'none',
                 'reasoning_trace_seed44': seed_results[44].reasoning or 'none',
-                'prompt_tokens': total_tok,  # Kaggle column name; was `tokens_used` in docs but rejected
+                'prompt_tokens': _prompt_tokens_per_call,   # per-call (≤4096 cap, what Kaggle validates)
+                'completion_tokens': _completion_tokens_per_call,
+                'tokens_used': total_tok,                  # sum across all 3 seeds (legacy spec column)
                 'model_name': model_name,
             })
     fieldnames = list(out_rows[0].keys())

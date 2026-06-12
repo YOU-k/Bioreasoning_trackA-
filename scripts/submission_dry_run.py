@@ -39,7 +39,11 @@ EXPECTED_COLUMNS = [
     'reasoning_trace_seed42',
     'reasoning_trace_seed43',
     'reasoning_trace_seed44',
-    'prompt_tokens',         # Kaggle actually rejects `tokens_used` (project_info doc was wrong)
+    # 16-column schema verified against v3 submission accepted by Kaggle
+    # (origin/sync/a15-submit-v3 commit 315f004):
+    'prompt_tokens',         # per-call (≤4096, what Kaggle validates)
+    'completion_tokens',     # per-call avg
+    'tokens_used',           # sum across all 3 seeds
     'model_name',
 ]
 
@@ -57,6 +61,8 @@ COLUMN_TYPES = {
     'reasoning_trace_seed43': str,
     'reasoning_trace_seed44': str,
     'prompt_tokens': int,
+    'completion_tokens': int,
+    'tokens_used': int,
     'model_name': str,
 }
 
