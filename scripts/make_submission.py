@@ -10,6 +10,11 @@ Usage:
 from __future__ import annotations
 import argparse, zipfile, shutil
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+import sys
+sys.path.insert(0, str(ROOT))
+
 from pipeline.runner import assemble_submission
 
 

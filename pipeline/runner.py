@@ -10,21 +10,8 @@ from __future__ import annotations
 import csv, json, math, os, time
 from pathlib import Path
 from .replogle_prior import ReplogPrior
-from .prompt_builder import build_prompt
 from .prompt_builder_v3 import build_track_a_prompt, estimate_tokens
 from .output_parser import parse
-
-
-# Harmony developer-role system prompt baked into the local GPT-OSS-120B
-# inference path on the LLM server (origin/sync/a15-submit-v3). We mirror it
-# here so prompt_tokens can be computed identically on this host.
-_LOCAL_DEV_INSTRUCTIONS = (
-    "Reasoning: low\n"
-    "Follow the user's instructions exactly.\n"
-    "Do not reveal scratch work, drafts, or chain-of-thought.\n"
-    "Write only the final answer block requested by the user.\n"
-    "Stop immediately after the final numeric line."
-)
 
 
 def _logit(p: float, eps: float = 1e-6) -> float:
@@ -77,33 +64,55 @@ def hybrid_direction(r_llm: float, pert: str, gene: str,
 
 ROOT = Path(__file__).resolve().parent.parent
 DATA = ROOT / 'data'
+_LOCAL_GPTOSS_MODEL = Path('/workspace/volume/data/yy/gpt-oss-120b')
+_LOCAL_DEV_INSTRUCTIONS = (
+    "Reasoning: low\n"
+    "Follow the user's instructions exactly.\n"
+    "Do not reveal scratch work, drafts, or chain-of-thought.\n"
+    "Write only the final answer block requested by the user.\n"
+    "Stop immediately after the final numeric line."
+)
 
 
 def build_all_prompts(test_csv: str | Path = DATA/'test.csv',
-                      out_dir: str | Path = ROOT/'attempts/02_baseline_prompts/prompts',
-                      use_kg: bool = False) -> dict:
+                      out_dir: str | Path = ROOT/'attempts/12_cleaner_prompt/prompts',
+                      use_kg: bool = True) -> dict:
     """Build per-row prompts for every row in test.csv.
 
     Args:
-        use_kg: include Layer 2 (KG mechanism) and Layer 3 (cell-type guide)
-                in addition to Layer 1 (Replogle prior). attempt 02 = False,
-                attempt 03+ = True.
+        use_kg: retained for backward-compatible CLI signatures. The shipped
+                Track-A path uses prompt_builder_v3, which always uses KG-backed
+                retrieval for analogue/contrast examples.
 
     Returns a dict summary {id: {pert, gene, tier, n_tokens, prompt_path}}.
     """
     out_dir = Path(out_dir); out_dir.mkdir(parents=True, exist_ok=True)
     prior = ReplogPrior()
-    kg = None
-    if use_kg:
-        from .kg_retrieval import KGRetrieval
-        kg = KGRetrieval()
+    from .gene_desc import default as gene_desc_default
+    from .hagai_prior import default as hagai_default
+    from .kg_retrieval import KGRetrieval
+    from .retrieve_examples import ExampleRetriever
+
+    kg = KGRetrieval()
+    retriever = ExampleRetriever(kg=kg)
+    desc = gene_desc_default()
+    hagai = hagai_default()
     summary = {}
     t0 = time.time()
     with open(test_csv) as f:
         rows = list(csv.DictReader(f))
     for i, row in enumerate(rows):
         rid, pert, gene = row['id'], row['pert'], row['gene']
-        prompt = build_prompt(pert, gene, prior, kg=kg, use_kg=use_kg)
+        prompt = build_track_a_prompt(
+            pert, gene,
+            prior=prior,
+            hagai=hagai,
+            kg=kg,
+            retriever=retriever,
+            desc=desc,
+            exclude_query=False,
+            seed=42,
+        )
         path = out_dir / f"{rid}.txt"
         with open(path, 'w') as fh: fh.write(prompt)
         summary[rid] = {
@@ -143,12 +152,32 @@ def assemble_submission(outputs_dir: str | Path,
     """
     outputs_dir = Path(outputs_dir)
     test_csv = DATA / 'test.csv'
+    from .gene_desc import default as gene_desc_default
+    from .hagai_prior import default as hagai_default
+    from .kg_retrieval import KGRetrieval
+    from .retrieve_examples import ExampleRetriever
+    tokenizer = None
+    if _LOCAL_GPTOSS_MODEL.exists():
+        try:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(
+                str(_LOCAL_GPTOSS_MODEL),
+                trust_remote_code=True,
+            )
+        except Exception:
+            tokenizer = None
+
+    prior = ReplogPrior()
+    kg = KGRetrieval()
+    retriever = ExampleRetriever(kg=kg)
+    desc = gene_desc_default()
+    hagai = hagai_default()
+
     out_rows = []
     with open(test_csv) as f:
         for row in csv.DictReader(f):
             rid = row['id']
             seed_results = {}
-            tokens_per_seed = {}
             for seed in seeds:
                 txt_path = outputs_dir / str(seed) / f"{rid}.txt"
                 raw = txt_path.read_text() if txt_path.exists() else ""
@@ -163,7 +192,6 @@ def assemble_submission(outputs_dir: str | Path,
             # Hybrid direction (probe60 finding: LLM r is near-random on
             # test-condition data; Replogle direct sign is stronger).
             if apply_hybrid_direction:
-                from .replogle_prior import ReplogPrior
                 # Lazy-init prior; cache via function attr to avoid reload per row
                 if not hasattr(assemble_submission, '_prior'):
                     assemble_submission._prior = ReplogPrior()
@@ -183,21 +211,36 @@ def assemble_submission(outputs_dir: str | Path,
                 total_tok = sum(int(d.get(str(s), 0)) for s in seeds)
             else:
                 total_tok = 0
+                d = {}
 
-            # Per-call prompt_tokens — Kaggle validates against the 4096 cap.
-            # Rebuild the shipped prompt for this row and estimate tokens.
-            # The LLM-server runner uses the actual GPT-OSS tokenizer; this
-            # fallback rough-counts (len(text)//4) is good enough for the
-            # offline-built submission CSV column.
-            try:
-                _prompt_text = build_track_a_prompt(row['pert'], row['gene'])
-                _prompt_tokens_per_call = (estimate_tokens(_prompt_text)
-                                           + estimate_tokens(_LOCAL_DEV_INSTRUCTIONS))
-            except Exception:
-                _prompt_tokens_per_call = 0
-            _prompt_total = _prompt_tokens_per_call * len(seeds)
-            _completion_tokens_per_call = (max(0, total_tok - _prompt_total)
-                                           // max(1, len(seeds)))
+            # Recompute prompt tokens deterministically from the shipped prompt
+            # builder so we can expose prompt/completion breakdown columns
+            prompt = build_track_a_prompt(
+                row['pert'], row['gene'],
+                prior=prior,
+                hagai=hagai,
+                kg=kg,
+                retriever=retriever,
+                desc=desc,
+                exclude_query=False,
+                seed=42,
+            )
+            if tokenizer is not None:
+                rendered = tokenizer.apply_chat_template(
+                    [
+                        {'role': 'developer', 'content': _LOCAL_DEV_INSTRUCTIONS},
+                        {'role': 'user', 'content': prompt},
+                    ],
+                    tokenize=False,
+                    add_generation_prompt=True,
+                )
+                prompt_tokens = len(tokenizer.encode(rendered))
+            else:
+                prompt_tokens = estimate_tokens(prompt) + estimate_tokens(_LOCAL_DEV_INSTRUCTIONS)
+
+            prompt_tokens_total = prompt_tokens * len(seeds)
+            completion_tokens_total = max(0, total_tok - prompt_tokens_total)
+            completion_tokens = int(round(completion_tokens_total / len(seeds))) if seeds else 0
             out_rows.append({
                 'id': rid,
                 'prediction_up': round(final_up, 6),
@@ -211,9 +254,9 @@ def assemble_submission(outputs_dir: str | Path,
                 'reasoning_trace_seed42': seed_results[42].reasoning or 'none',
                 'reasoning_trace_seed43': seed_results[43].reasoning or 'none',
                 'reasoning_trace_seed44': seed_results[44].reasoning or 'none',
-                'prompt_tokens': _prompt_tokens_per_call,   # per-call (≤4096 cap, what Kaggle validates)
-                'completion_tokens': _completion_tokens_per_call,
-                'tokens_used': total_tok,                  # sum across all 3 seeds (legacy spec column)
+                'prompt_tokens': prompt_tokens,
+                'completion_tokens': completion_tokens,
+                'tokens_used': total_tok,
                 'model_name': model_name,
             })
     fieldnames = list(out_rows[0].keys())

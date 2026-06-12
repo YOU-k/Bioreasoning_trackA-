@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Local GPT-OSS inference for Track-A compliant single-call prompt (attempt 07).
+"""Local GPT-OSS inference for Track-A compliant single-call prompt.
+
+Uses gpt-oss through its Harmony chat template by default. Track A's 4,096
+token rule applies to the input prompt only; completion length is not the same
+constraint and is treated here as an optional safety cap.
 
 Writes:
   <out>/<seed>/<id>.txt
@@ -18,7 +22,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
 
+from transformers import AutoTokenizer
 from vllm import LLM, SamplingParams
+from vllm.entrypoints.openai.parser.harmony_utils import parse_chat_output
 
 from pipeline.gene_desc import default as gene_desc_default
 from pipeline.kg_retrieval import KGRetrieval
@@ -28,7 +34,7 @@ from pipeline.retrieve_examples import ExampleRetriever
 
 
 DEFAULT_MODEL = Path('/workspace/volume/data/yy/gpt-oss-120b')
-DEFAULT_OUT = ROOT / 'attempts/07_no_anchors/outputs/local_test'
+DEFAULT_OUT = ROOT / 'attempts/12_cleaner_prompt/outputs/local_vllm'
 DEVELOPER_INSTRUCTIONS = (
     "Reasoning: low\n"
     "Follow the user's instructions exactly.\n"
@@ -56,18 +62,51 @@ def save_tokens(path: Path, data: dict[str, int]) -> None:
     path.write_text(json.dumps(data))
 
 
+def _extract_visible_text(output) -> str:
+    """For gpt-oss Harmony outputs, prefer the final/commentary-visible text.
+
+    `LLM.chat()` returns a generic RequestOutput, not the higher-level OpenAI
+    ChatMessage object used by the HTTP server. For Harmony-trained models,
+    `output.outputs[0].text` may be only the analysis stream prefix. The token
+    ids still let us recover the visible final content.
+    """
+    comp = output.outputs[0]
+    reasoning, content, _ = parse_chat_output(list(comp.token_ids))
+    if content:
+        return content
+    return ""
+
+
 def parse_args():
     ap = argparse.ArgumentParser()
     ap.add_argument('--model', type=Path, default=DEFAULT_MODEL)
     ap.add_argument('--out', type=Path, default=DEFAULT_OUT)
-    ap.add_argument('--limit', type=int, default=10)
+    ap.add_argument('--limit', type=int, default=0)
     ap.add_argument('--seeds', type=int, nargs='+', default=[42, 43, 44])
-    ap.add_argument('--max-model-len', type=int, default=4096)
-    ap.add_argument('--max-tokens', type=int, default=1800)
-    ap.add_argument('--gpu-memory-utilization', type=float, default=0.92)
+    ap.add_argument(
+        '--max-model-len', type=int, default=8192,
+        help='runtime context window for local vLLM; Track A still separately limits prompt tokens to 4096'
+    )
+    ap.add_argument(
+        '--max-tokens', type=int, default=2048,
+        help='completion cap for reasoning + final answer'
+    )
+    ap.add_argument('--gpu-memory-utilization', type=float, default=0.70)
     ap.add_argument('--tensor-parallel-size', type=int, default=2)
-    ap.add_argument('--max-num-seqs', type=int, default=2)
-    ap.add_argument('--mode', choices=['raw', 'chat'], default='raw')
+    ap.add_argument('--max-num-seqs', type=int, default=8)
+    ap.add_argument('--mode', choices=['raw', 'chat'], default='chat')
+    ap.add_argument(
+        '--enforce-eager',
+        action='store_true',
+        default=True,
+        help='disable torch.compile/CUDAGraphs for more reliable local gpt-oss startup'
+    )
+    ap.add_argument(
+        '--no-enforce-eager',
+        dest='enforce_eager',
+        action='store_false',
+        help='re-enable compile/CUDAGraph path'
+    )
     return ap.parse_args()
 
 
@@ -101,7 +140,18 @@ def build_jobs(limit: int):
     return jobs
 
 
-def run_seed(llm: LLM, jobs: list[dict], out_dir: Path, seed: int,
+def _count_prompt_tokens(tokenizer, job: dict, mode: str) -> int:
+    if mode == 'chat':
+        rendered = tokenizer.apply_chat_template(
+            job['messages'],
+            tokenize=False,
+            add_generation_prompt=True,
+        )
+        return len(tokenizer.encode(rendered))
+    return len(tokenizer.encode(job['prompt']))
+
+
+def run_seed(llm: LLM, tokenizer, jobs: list[dict], out_dir: Path, seed: int,
              max_tokens: int, max_num_seqs: int, mode: str) -> None:
     seed_dir = out_dir / str(seed)
     seed_dir.mkdir(parents=True, exist_ok=True)
@@ -119,12 +169,14 @@ def run_seed(llm: LLM, jobs: list[dict], out_dir: Path, seed: int,
         print(f'seed {seed}: all outputs already exist, skipping')
         return
 
-    sampling = SamplingParams(
+    sampling_kwargs = dict(
         temperature=1.0,
         top_p=1.0,
         seed=seed,
-        max_tokens=max_tokens,
     )
+    if max_tokens and max_tokens > 0:
+        sampling_kwargs['max_tokens'] = max_tokens
+    sampling = SamplingParams(**sampling_kwargs)
 
     print(f'seed {seed}: generating {len(pending)} rows')
     t0 = time.time()
@@ -142,10 +194,22 @@ def run_seed(llm: LLM, jobs: list[dict], out_dir: Path, seed: int,
             outputs = llm.generate(prompts, sampling)
         for job, output in zip(batch, outputs):
             out_path = seed_dir / f"{job['id']}.txt"
-            out_path.write_text(output.outputs[0].text)
+            visible = _extract_visible_text(output)
+            if not visible:
+                comp = output.outputs[0]
+                finish = getattr(comp, 'finish_reason', None)
+                stop = getattr(comp, 'stop_reason', None)
+                snippet = comp.text[:500].replace('\n', '\\n')
+                raise RuntimeError(
+                    f"Harmony final content missing for {job['id']} "
+                    f"(finish_reason={finish}, stop_reason={stop}, raw={snippet!r})"
+                )
+            out_path.write_text(visible)
             tok_path = tokens_dir / f"{job['id']}.json"
             toks = load_tokens(tok_path)
-            toks[str(seed)] = len(output.outputs[0].token_ids)
+            prompt_tokens = _count_prompt_tokens(tokenizer, job, mode)
+            completion_tokens = len(output.outputs[0].token_ids)
+            toks[str(seed)] = prompt_tokens + completion_tokens
             save_tokens(tok_path, toks)
             done += 1
         print(f'  seed {seed}: {done}/{len(pending)} done')
@@ -159,6 +223,7 @@ def main():
 
     jobs = build_jobs(args.limit)
     print(f'built {len(jobs)} jobs')
+    tokenizer = AutoTokenizer.from_pretrained(str(args.model), trust_remote_code=True)
 
     os.environ.pop('LD_PRELOAD', None)
     os.environ['VLLM_WORKER_MULTIPROC_METHOD'] = 'spawn'
@@ -174,10 +239,11 @@ def main():
         tensor_parallel_size=args.tensor_parallel_size,
         max_num_seqs=args.max_num_seqs,
         dtype='bfloat16',
+        enforce_eager=args.enforce_eager,
     )
 
     for seed in args.seeds:
-        run_seed(llm, jobs, args.out, seed, args.max_tokens, args.max_num_seqs, args.mode)
+        run_seed(llm, tokenizer, jobs, args.out, seed, args.max_tokens, args.max_num_seqs, args.mode)
 
 
 if __name__ == '__main__':
